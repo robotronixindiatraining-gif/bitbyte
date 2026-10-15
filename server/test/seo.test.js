@@ -200,6 +200,21 @@ describe('redirects and URL normalisation', () => {
   });
 });
 
+describe('normalisePaths', () => {
+  it('ignores absolute-form request targets', async () => {
+    const { normalisePaths } = await import('../src/seo/siteRoutes.js');
+    let redirected = null;
+    let nexted = false;
+    normalisePaths()(
+      { method: 'GET', originalUrl: 'http://evil.example/X' },
+      { redirect: (code, to) => (redirected = [code, to]) },
+      () => (nexted = true),
+    );
+    expect(redirected).toBeNull();
+    expect(nexted).toBe(true);
+  });
+});
+
 describe('robots.txt and sitemap.xml', () => {
   it('blocks all crawling unless production indexing is enabled', async () => {
     expect((await request(app()).get('/robots.txt')).text).toBe('User-agent: *\nDisallow: /\n');

@@ -137,7 +137,14 @@ export function createLeadNotifications({ mailer, config, logger, now = () => ne
       {
         'notification.status': 'pending',
         status: mongoose.trusted({ $ne: 'spam' }),
-        'notification.nextAttemptAt': mongoose.trusted({ $lte: now() }),
+        $or: [
+          { 'notification.nextAttemptAt': mongoose.trusted({ $lte: now() }) },
+          // The first attempt never started (e.g. restart right after the submission).
+          {
+            'notification.nextAttemptAt': null,
+            createdAt: mongoose.trusted({ $lte: new Date(now().getTime() - 60_000) }),
+          },
+        ],
       },
       { _id: 1 },
     )

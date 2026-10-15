@@ -139,7 +139,7 @@ describe('scheduler', () => {
     });
     const logger = { error: vi.fn() };
     const jobs = startJobs({
-      retention: { purgeExpired: purge },
+      retention: { purgeExpired: purge, recomputeExpiry: async () => ({ updated: 0 }) },
       notifications: { retryDue: retry },
       logger,
       intervals: { 'retention-purge': 1000 },

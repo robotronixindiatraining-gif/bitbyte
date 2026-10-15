@@ -99,7 +99,8 @@ export const CONTENT_BUILDERS = {
   page: (k) =>
     k.object({
       title: k.req(k.text(120)),
-      slug: k.opt(z.string().max(80)),
+      // '' = the homepage; otherwise a normal slug once published.
+      slug: k.opt(k.strict ? z.literal('').or(k.slug()) : z.string().max(80)),
       sections: k.opt(k.list(sectionSchema(k), 20)),
       seo: k.opt(seoSchema(k)),
     }),

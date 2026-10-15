@@ -16,7 +16,7 @@ const redirectSchema = new mongoose.Schema(
       type: String,
       required: true,
       maxlength: 2048,
-      match: /^(\/[^\s]*|https:\/\/[^\s]+)$/,
+      match: /^(\/(?![/\\])[^\s\\]*|https:\/\/[^\s\\]+)$/,
     },
     statusCode: { type: Number, enum: [301, 302], default: 301 },
     enabled: { type: Boolean, default: true },

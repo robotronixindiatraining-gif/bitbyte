@@ -286,7 +286,7 @@ Media responses: `{ id, url, alt, decorative, width, height, dominantColor, vari
 | `GET /admin/leads/:id` | Full lead + notes + notification status (`pending`, `accepted` = the provider confirmed it accepted the e-mail, `failed`, `not_sent`) + spam signals + `expiresAt` |
 | `PATCH /admin/leads/:id` | `{ status }` (enum from `DATABASE_SCHEMA.md` §3.11). Moving into/out of `spam` switches the retention period |
 | `POST /admin/leads/:id/notes` | `{ text }` → `201` |
-| `POST /admin/leads/:id/resend-notification` | Re-queues and retries the e-mail now (409 for spam or an already-accepted notification) |
+| `POST /admin/leads/:id/resend-notification` | Re-queues and retries the e-mail now (409 for spam, an already-accepted notification, or a retry already scheduled/running) |
 | `GET /admin/leads/export.csv?…filters` **⇑** | CSV (UTF-8 with BOM, all cells quoted, formula-injection-safe: cells starting with `= + - @`, tab or CR are prefixed with `'`), max 10 000 rows; `Content-Disposition: attachment`; audited with the row count only |
 | `DELETE /admin/leads/:id` **⇑** | Erasure; requires `{ "confirm": "DELETE" }`; audited without PII |
 | (scheduled) | A daily purge deletes leads past `expiresAt` (D-032); one audit entry with counts. Manual run: `npm run retention:run` (dry run unless `--apply`) |

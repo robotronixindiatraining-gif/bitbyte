@@ -33,6 +33,7 @@ const ORDERING_OF = {
 
 /** Public reads never even load drafts or internal fields. */
 const PUBLIC_FIELDS = {
+  publishedAt: 1,
   slug: 1,
   template: 1,
   status: 1,
@@ -172,7 +173,7 @@ export function createResolver({ mode, media: mediaService, siteUrl }) {
   async function link(value) {
     if (!value?.label) return null;
     const base = { label: value.label, openInNewTab: Boolean(value.openInNewTab) };
-    if (value.kind === 'internal' && value.href?.startsWith('/') && !value.href.startsWith('//')) {
+    if (value.kind === 'internal' && /^\/(?![/\\])[^\s\\]*$/.test(value.href ?? '')) {
       return { ...base, href: value.href, external: false };
     }
     if (value.kind === 'external' && /^https?:\/\//i.test(value.href ?? '')) {

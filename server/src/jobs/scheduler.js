@@ -12,7 +12,11 @@ export function startJobs({ retention, notifications, logger, intervals = {} }) 
   const jobs = [
     {
       name: 'retention-purge',
-      run: () => retention.purgeExpired(),
+      // Re-derive expiry dates from the published settings first (idempotent), then purge.
+      run: async () => {
+        await retention.recomputeExpiry();
+        return retention.purgeExpired();
+      },
       firstMs: 60_000,
       everyMs: 24 * HOUR_MS,
     },

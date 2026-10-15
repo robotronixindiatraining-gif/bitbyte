@@ -34,6 +34,15 @@ export function toAppError(err) {
       formatZodIssues(err),
     );
   }
+  // Mongoose validation: report the paths only — messages can contain the rejected values.
+  if (err?.name === 'ValidationError' && err.errors) {
+    return new AppError(
+      422,
+      ERROR_CODES.VALIDATION_ERROR,
+      'Request validation failed.',
+      Object.keys(err.errors).map((path) => ({ path, message: 'Invalid value' })),
+    );
+  }
   const bodyError = err && BODY_PARSER_ERRORS[err.type];
   if (bodyError) return new AppError(...bodyError);
   if (isDatabaseUnavailable(err)) {

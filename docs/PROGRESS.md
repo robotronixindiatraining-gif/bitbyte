@@ -182,20 +182,21 @@ No packages removed or upgraded.
 | 10 | SEO: per-page metadata, canonical, social tags, published-only sitemap, robots, real 404s, redirects, admin/API excluded; canonical `www` redirect disabled | ✅ `test/seo.test.js` |
 | 11 | Dashboard summary APIs without unnecessary PII | ✅ |
 | 12 | Isolated test databases, mocked providers, no real credentials; contract test; coverage ≥ 80 % for services/controllers | ✅ lines ≈ 89 % (services) / ≈ 85 % (controllers) |
-| 13 | Docs updated; full pipeline green | ✅ locally; CI result recorded below after the push |
+| 13 | Docs updated; full pipeline green | ✅ locally and in CI: GitHub Actions run on `15a29cf` succeeded; the review fixes were re-verified locally (`npm run check` green) and pushed as a follow-up commit |
 
 ### Verification results (2026-10-15, Node 22.22.0, npm 10.9.4, MongoDB 8.0.34)
 | Check | Result |
 |---|---|
 | `npm run check:no-ts` | ✅ No TypeScript found |
 | `npm run lint` / `format:check` | ✅ clean |
-| `npm test` | ✅ shared 23 · server 278 · client 7 = **308 tests** (server suites on isolated in-memory MongoDB; Cloudinary, Resend and Turnstile mocked) |
-| `npm run test:coverage -w server` | ✅ statements 86.9 %, lines 89.4 % overall (services 89.3 % lines, controllers 84.9 % lines) |
+| `npm test` | ✅ shared 23 · server 284 · client 7 = **314 tests** (server suites on isolated in-memory MongoDB; Cloudinary, Resend and Turnstile mocked) |
+| `npm run test:coverage -w server` | ✅ statements 87.1 %, lines 89.5 % overall (services 89.5 % lines, controllers 84.9 % lines) |
 | `npm run build` | ✅ JS 110.4 KB gzip (unchanged) |
 | `npm run smoke` | ✅ 14/14, incl. 503 + noindex shell without a DB, robots blocking indexing, cross-origin lead rejection |
 | `npm audit --omit=dev --audit-level=high` | ✅ 0 vulnerabilities |
 | **Real MongoDB** (8.0.34, throwaway data directory) | ✅ 27/27 manual end-to-end checks on a running server (sign-in with 2FA enrolment → settings incl. step-up → upload with EXIF stripped → placeholder block → sanitised draft → publish → public API, HTML title, 301 normalisation, 404, sitemap, robots → in-use media refused → lead stored (`unverified`, Cloudflare unreachable) → CSV export → dashboard without PII → erasure). The server log contained no personal data. Data directory deleted afterwards. |
 | Real Cloudinary / Resend / Turnstile | ⏳ **Not verified**: no credentials supplied; activation and verification steps in `DEPLOYMENT.md` §4b |
+| Independent code review of the Stage 05 diff | ✅ 12 findings; no leak of unpublished content found. 11 fixed with regression tests (see `STAGE_LOG.md` Stage 05 §4a); 1 kept by design (revisions do not block media deletion, `DATABASE_SCHEMA.md` §3.10) |
 
 ### Packages installed (Stage 05)
 | Workspace | Package (version) | Why |

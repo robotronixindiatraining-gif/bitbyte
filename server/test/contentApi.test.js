@@ -319,6 +319,68 @@ describe('publishable collections over HTTP', () => {
   });
 });
 
+describe('review regressions', () => {
+  it('publishes once an unpublished reference is removed from the draft', async () => {
+    const other = (
+      await publish(
+        'services',
+        await createService(completeService({ slug: 'other', title: 'Other' })),
+      )
+    ).body.data;
+    const page = (await post('/pages', { draft: { title: 'Landing', slug: 'landing' } })).body.data;
+    const withRef = {
+      title: 'Landing',
+      slug: 'landing',
+      sections: [
+        {
+          key: 'g',
+          type: 'serviceGrid',
+          data: { heading: 'S', source: 'manual', services: [other.id], layout: 'list' },
+        },
+      ],
+    };
+    let doc = (await put(`/pages/${page.id}/draft`, { revision: 1, draft: withRef })).body.data;
+    doc = (await publish('pages', doc)).body.data;
+    await post(`/services/${other.id}/unpublish`, { revision: other.revision });
+    doc = (
+      await put(`/pages/${page.id}/draft`, {
+        revision: doc.revision,
+        draft: { title: 'Landing', slug: 'landing' },
+      })
+    ).body.data;
+    const res = await publish('pages', doc);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+  });
+
+  it('rejects malformed slugs with 422 instead of failing later', async () => {
+    for (const slug of ['My Service', 'About', 'a/b', '']) {
+      const res = await post('/services', { draft: completeService({ slug }) });
+      expect(res.status, slug).toBe(422);
+    }
+    const page = await post('/pages', { draft: { title: 'X', slug: 'About' } });
+    expect(page.status).toBe(422);
+  });
+
+  it('refuses slugs used by a manual redirect for nested items and backslash targets', async () => {
+    await post('/redirects', { fromPath: '/portfolio/b', toPath: '/portfolio' });
+    const cover = await createMedia();
+    const category = await createCategory();
+    const project = await post('/projects', {
+      draft: {
+        title: 'B',
+        slug: 'b',
+        summary: 'S',
+        category: String(category._id),
+        cover: { media: String(cover._id) },
+      },
+    });
+    expect(project.status).toBe(409);
+    expect((await post('/redirects', { fromPath: '/x', toPath: '/\\evil.example' })).status).toBe(
+      422,
+    );
+  });
+});
+
 describe('settings', () => {
   it('drafts and publishes settings; privacy publication requires step-up', async () => {
     const { Setting } = await import('../src/models/index.js');

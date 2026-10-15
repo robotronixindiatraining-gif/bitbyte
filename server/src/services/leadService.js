@@ -300,6 +300,13 @@ export function createLeadService({
     const lead = await find(id);
     if (lead.status === 'spam')
       throw new AppError(409, ERROR_CODES.INVALID_STATE, 'Spam leads are not notified.');
+    if (lead.notification?.status === 'pending' && lead.notification.nextAttemptAt > now()) {
+      throw new AppError(
+        409,
+        ERROR_CODES.INVALID_STATE,
+        'The notification is already being retried.',
+      );
+    }
     if (lead.notification?.status === 'accepted') {
       throw new AppError(
         409,

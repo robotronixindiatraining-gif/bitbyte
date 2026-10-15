@@ -59,8 +59,13 @@ export function createServices({ config, logger, overrides = {} }) {
       async onPublished(kind, doc) {
         cache.clear();
         // New retention periods apply to every stored lead (D-032).
-        if (kind === 'settings' && doc.key === 'privacy')
-          await retention.recomputeExpiry(doc.published);
+        if (kind === 'settings' && doc.key === 'privacy') {
+          // Already published and audited: a failure here must not become an error response.
+          // The daily retention job recomputes expiry dates again before purging.
+          await retention.recomputeExpiry(doc.published).catch((err) => {
+            logger.error({ err: { name: err?.name } }, 'lead expiry recomputation failed');
+          });
+        }
       },
     },
   });

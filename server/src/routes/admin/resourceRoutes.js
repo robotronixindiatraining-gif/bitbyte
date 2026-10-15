@@ -13,12 +13,16 @@ const sitePath = z
   .string()
   .trim()
   .max(300)
-  .regex(/^\/[^\s?#]*$/, 'Must be a site path such as /old-page');
+  .regex(/^\/[^\s?#\\]*$/, 'Must be a site path such as /old-page');
 const redirectTarget = z
   .string()
   .trim()
   .max(2048)
-  .regex(/^(\/(?!\/)[^\s]*|https:\/\/[^\s]+)$/, 'A site path (/new-page) or an https:// URL');
+  // "//host" and "/\host" are rejected: browsers treat both as another site.
+  .regex(
+    /^(\/(?![/\\])[^\s\\]*|https:\/\/[^\s\\]+)$/,
+    'A site path (/new-page) or an https:// URL',
+  );
 
 const taxonomyCreate = z
   .object({

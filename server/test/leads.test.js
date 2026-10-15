@@ -102,6 +102,10 @@ describe('POST /public/leads', () => {
       const res = await submit(app, body);
       expect(res.status, JSON.stringify(body)).toBe(422);
     }
+    expect((await submit(app, valid({ phone: '+91 (98765) 43210 999' }))).status).toBe(422);
+    expect((await submit(app, valid({ email: `${'a'.repeat(250)}@example.com` }))).status).toBe(
+      422,
+    );
     const big = await submit(app, valid({ message: 'x'.repeat(20_000) }));
     expect(big.status).toBe(413);
     const broken = await request(app)
@@ -356,6 +360,42 @@ describe('admin lead management', () => {
     const entry = await AuditLog.findOne({ action: 'lead.erase' }).lean();
     expect(entry).toMatchObject({ outcome: 'succeeded', entityId: lead._id });
     expect(JSON.stringify(entry)).not.toMatch(/Asha|asha@/);
+  });
+
+  it('keeps search terms out of the access log', async () => {
+    const { app: logged, logs } = makeApp();
+    const a = await signIn(logged, await createAdmin({ email: 'other@example.com' }));
+    await a.get('/api/v1/admin/leads?q=findme-secret-term');
+    expect(logs.text()).toContain('/api/v1/admin/leads');
+    expect(logs.text()).not.toContain('findme-secret-term');
+  });
+
+  it('retries notifications whose first attempt never started, and refuses a parallel re-send', async () => {
+    // Raw driver update: Mongoose treats createdAt as immutable.
+    await Lead.collection.updateOne(
+      { _id: lead._id },
+      {
+        $set: {
+          'notification.status': 'pending',
+          'notification.nextAttemptAt': null,
+          createdAt: new Date(Date.now() - 120_000),
+        },
+      },
+    );
+    expect(await app.locals.services.leadNotifications.retryDue()).toBe(1);
+    await Lead.updateOne(
+      { _id: lead._id },
+      {
+        $set: {
+          'notification.status': 'pending',
+          'notification.nextAttemptAt': new Date(Date.now() + 60_000),
+        },
+      },
+    );
+    const res = await agent
+      .post(`/api/v1/admin/leads/${lead._id}/resend-notification`)
+      .set(HEADERS);
+    expect(res.status).toBe(409);
   });
 
   it('re-sends a notification that was not sent', async () => {

@@ -37,7 +37,12 @@ export function createApp({ config, logger, db, overrides = {} }) {
       customLogLevel: (_req, res, err) =>
         err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info',
       serializers: {
-        req: (req) => ({ id: req.id, method: req.method, url: req.url }),
+        // Path only: query strings can carry search terms such as names or e-mail addresses.
+        req: (req) => ({
+          id: req.id,
+          method: req.method,
+          url: String(req.url ?? '').split('?')[0],
+        }),
         res: (res) => ({ statusCode: res.statusCode }),
       },
     }),

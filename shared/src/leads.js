@@ -41,11 +41,12 @@ export const leadSubmissionSchema = z
     fullName: text(1, 100),
     companyName: text(1, 120),
     companyLocation: text(1, 120),
-    email: emailSchema,
+    email: emailSchema.pipe(z.string().max(254, 'Must be at most 254 characters')),
     phone: z
       .string()
       .trim()
-      .regex(/^\+?[0-9][0-9 ()-]{5,18}[0-9]$/, 'Enter a valid phone number')
+      // At most 20 characters, the stored limit.
+      .regex(/^\+?[0-9][0-9 ()-]{5,17}[0-9]$/, 'Enter a valid phone number')
       .transform((value) => value.replace(/\s+/g, ' ')),
     budget: text(1, 60),
     message: z

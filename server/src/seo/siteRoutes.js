@@ -15,6 +15,8 @@ const HAS_EXTENSION = /\/[^/]*\.[^/]*$/;
 export function normalisePaths() {
   return (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    // Absolute-form request targets ("GET http://host/x") are left alone.
+    if (!req.originalUrl.startsWith('/')) return next();
     // Split by hand: URL parsing would read "//host/x" as a host name, not a path.
     const queryAt = req.originalUrl.indexOf('?');
     const pathname = queryAt === -1 ? req.originalUrl : req.originalUrl.slice(0, queryAt);

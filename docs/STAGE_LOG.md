@@ -230,8 +230,25 @@ Shared schema factory with an injectable rich-text sanitiser → content kinds r
 | Local storage `remove()` hid the "invalid key" error behind a generic one | Key validated before the file operation |
 | `pkill -f` during the manual run matched its own shell again (exit 144) | Processes stopped by PID; no project impact |
 
+### 4a. Independent review (after the first commit `15a29cf`, CI green)
+A separate read-only review of the whole diff found no leak of unpublished content, no authorisation gap and no injection path. It reported these defects, fixed in a follow-up commit with regression tests:
+| Finding | Fix |
+|---|---|
+| Publish checked references of the draft **and** the old live version, so removing a reference to an unpublished item could not be published | Only the version being published is checked |
+| Phone regex allowed 21 characters and e-mail had no length cap, while the model allows 20/254 → 500 with values in the error log | Schema limits aligned; Mongoose validation errors map to 422 with paths only (no values) |
+| Access logs included query strings (lead search terms) | Request log records the path only |
+| A lead whose first notification attempt never started was never retried | Retry job also picks up untried leads older than 1 minute |
+| Malformed slugs (e.g. `About`, `a/b`) gave 500 on create or could go live on pages | Every stored address is validated as a slug (422); the strict page schema requires a slug or `''` |
+| Renaming a project/job onto a manually redirected path could create a self-redirect | Manual/legacy redirects now block slugs for every kind; re-pointing skips the new path |
+| `/\host` passed the internal-path checks (browsers treat it as `//host`) | Backslashes and `//` rejected for redirect targets, internal links and stored redirects |
+| Absolute-form request targets could make normalisation emit an off-site `Location` | Normalisation ignores targets that do not start with `/` |
+| A failing expiry recomputation after publishing privacy settings returned 500 | Logged instead; the daily job recomputes expiry dates before purging |
+| Sitemap `lastmod` used the first publication date | Uses the latest publication date |
+| Re-sending a notification during an in-flight attempt could send twice | Refused with 409 while a retry is scheduled or running |
+| Media referenced only by revisions can be deleted | **Kept by design**: restoring such a revision yields a draft that cannot be published until the image is replaced (documented) |
+
 ### 5. Verification
-`npm run check` (with `MONGOMS_SYSTEM_BINARY`): no-TS ✅ · lint ✅ · format ✅ · tests 308/308 ✅ (shared 23 · server 278 · client 7) · build ✅ (110.4 KB gzip) · smoke 14/14 ✅. Coverage (`npm run test:coverage -w server`): lines ≈ 89 % services, ≈ 85 % controllers. Manual end-to-end run on a throwaway MongoDB 8.0.34 (`bitbyte_e2e`, temporary data directory deleted afterwards): 27/27 checks, from first sign-in with 2FA enrolment through settings, media upload, publishing, public API/HTML/sitemap/robots, lead submission (stored as `unverified` because Cloudflare was unreachable), CSV export, dashboard and erasure; the server log contained no personal data. The retention CLI ran in dry-run mode only. Details are in `PROGRESS.md`.
+`npm run check` (with `MONGOMS_SYSTEM_BINARY`), after the review fixes: no-TS ✅ · lint ✅ · format ✅ · tests 314/314 ✅ (shared 23 · server 284 · client 7) · build ✅ (110.4 KB gzip) · smoke 14/14 ✅. Coverage (`npm run test:coverage -w server`): lines ≈ 89.5 % services, ≈ 85 % controllers. GitHub Actions on `15a29cf`: success. Manual end-to-end run on a throwaway MongoDB 8.0.34 (`bitbyte_e2e`, temporary data directory deleted afterwards): 27/27 checks, from first sign-in with 2FA enrolment through settings, media upload, publishing, public API/HTML/sitemap/robots, lead submission (stored as `unverified` because Cloudflare was unreachable), CSV export, dashboard and erasure; the server log contained no personal data. The retention CLI ran in dry-run mode only. Details are in `PROGRESS.md`.
 
 ### 6. Not done (by scope or by missing input)
 Visual design system and public pages (Stages 06–07), admin UI (Stage 08), verification against real Cloudinary/Resend/Turnstile accounts (credentials pending), legacy-form field verification (fields provisional), production provisioning.

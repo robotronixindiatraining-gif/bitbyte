@@ -40,7 +40,8 @@ export function linkSchema(k) {
         ctx.addIssue({ code: 'custom', path: ['href'], message: 'Unsafe URL' });
       }
       if (!k.strict) return;
-      if (link.kind === 'internal' && !/^\/(?!\/)/.test(link.href ?? '')) {
+      // A site path; "//host" and "/\host" would leave the site in a browser.
+      if (link.kind === 'internal' && !/^\/(?![/\\])[^\s\\]*$/.test(link.href ?? '')) {
         ctx.addIssue({
           code: 'custom',
           path: ['href'],

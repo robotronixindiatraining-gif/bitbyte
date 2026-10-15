@@ -5,6 +5,7 @@ import {
   findPlaceholders,
   formatZodIssues,
   isReservedSlug,
+  slugSchema,
 } from '@bitbyte/shared';
 import {
   CONTENT_KINDS,
@@ -129,7 +130,22 @@ export function createContentService({ audit, context, hooks = {} }) {
 
   /** Services and custom pages share one top-level slug namespace (D-038). */
   async function assertSlugAvailable(kind, slug, excludeId) {
-    const { topLevel, Model } = kindConfig(kind);
+    const { topLevel, Model, path } = kindConfig(kind);
+    // Drafts accept any short string; an address is only ever stored in the canonical form.
+    if (!(kind === 'page' && slug === '') && !slugSchema.safeParse(slug).success) {
+      throw new AppError(422, ERROR_CODES.VALIDATION_ERROR, 'Content validation failed.', [
+        { path: 'draft.slug', message: 'Use lowercase letters, numbers and hyphens' },
+      ]);
+    }
+    // Automatic slug-change redirects give way to new content; manual/legacy ones do not (D-056).
+    const redirected = async () =>
+      path && slug
+        ? Redirect.exists({
+            fromPath: path(slug),
+            enabled: true,
+            source: mongoose.trusted({ $ne: 'slug-change' }),
+          })
+        : null;
     const taken = {
       $or: [{ slug }, { 'draft.slug': slug }],
       _id: mongoose.trusted({ $ne: excludeId }),
@@ -141,20 +157,10 @@ export function createContentService({ audit, context, hooks = {} }) {
       if (slug && isReservedSlug(slug)) throw conflict('This address is reserved.');
       const [service, page] = await Promise.all([Service.exists(taken), Page.exists(taken)]);
       if (service || page) throw conflict('This address is already used by a page or service.');
-      // Automatic slug-change redirects give way to new content; manual/legacy ones do not.
-      const redirect = slug
-        ? await Redirect.exists({
-            fromPath: `/${slug}`,
-            enabled: true,
-            source: mongoose.trusted({ $ne: 'slug-change' }),
-          })
-        : null;
-      if (redirect) {
-        throw conflict('This address is used by a redirect.');
-      }
-      return;
+    } else if (await Model.exists(taken)) {
+      throw conflict('This address is already in use.');
     }
-    if (await Model.exists(taken)) throw conflict('This address is already in use.');
+    if (await redirected()) throw conflict('This address is used by a redirect.');
   }
 
   /** Ordering documents must only list existing items of the right collection. */
@@ -355,9 +361,11 @@ export function createContentService({ audit, context, hooks = {} }) {
     return Model.findById(current._id);
   }
 
-  async function assertReferencesPublished(doc) {
+  /** Only what the version being published references counts (not the old live version). */
+  async function assertReferencesPublished(content) {
+    const refs = collectReferences([content]);
     const missing = [];
-    for (const ref of doc.entityRefs) {
+    for (const ref of refs.entities) {
       if (ref.kind === 'taxonomy') {
         if (!(await Taxonomy.exists({ _id: ref.id }))) missing.push(`taxonomy:${ref.id}`);
         continue;
@@ -366,7 +374,7 @@ export function createContentService({ audit, context, hooks = {} }) {
       if (Model && !(await Model.exists({ _id: ref.id, status: 'published' })))
         missing.push(`${ref.kind}:${ref.id}`);
     }
-    for (const mediaId of doc.mediaRefs) {
+    for (const mediaId of refs.media) {
       if (!(await Media.exists({ _id: mediaId }))) missing.push(`media:${mediaId}`);
     }
     if (missing.length > 0) {
@@ -387,7 +395,10 @@ export function createContentService({ audit, context, hooks = {} }) {
    */
   async function updateSlugRedirects(oldPath, newPath, wasLive) {
     await Redirect.deleteOne({ fromPath: newPath, source: 'slug-change' });
-    await Redirect.updateMany({ toPath: oldPath }, { $set: { toPath: newPath } });
+    await Redirect.updateMany(
+      { toPath: oldPath, fromPath: mongoose.trusted({ $ne: newPath }) },
+      { $set: { toPath: newPath } },
+    );
     if (wasLive) {
       await Redirect.updateOne(
         { fromPath: oldPath },
@@ -443,7 +454,7 @@ export function createContentService({ audit, context, hooks = {} }) {
       }
     }
     if (kind === 'ordering') await assertOrderingIds(doc.key, strict.data.ids);
-    await assertReferencesPublished(doc);
+    await assertReferencesPublished(strict.data);
 
     const newSlug = 'slug' in Model.schema.paths ? (strict.data.slug ?? doc.slug) : undefined;
     if (newSlug !== undefined && newSlug !== doc.slug)
