@@ -18,11 +18,19 @@ import { useTestDatabase } from './support/db.js';
 useTestDatabase();
 
 const PLACEHOLDER_ID = '64b7f0c2a1b2c3d4e5f60718';
+// Any property of the stub is the stub itself, and it is callable: it stands in for every handler.
+const stub = new Proxy(() => {}, { get: () => stub });
 const ROUTES = adminRouteTable({
-  administrators: new Proxy({}, { get: () => () => {} }),
-  auditLogs: new Proxy({}, { get: () => () => {} }),
+  administrators: stub,
+  auditLogs: stub,
+  content: stub,
+  resources: stub,
 });
-const routeUrl = (path) => `/api/v1/admin${path.replace(':id', PLACEHOLDER_ID)}`;
+const routeUrl = (path) =>
+  `/api/v1/admin${path
+    .replace(':id', PLACEHOLDER_ID)
+    .replace(':key', path.startsWith('/orderings') ? 'services' : 'general')
+    .replace(':rev', '1')}`;
 
 let app;
 let owner;
@@ -65,8 +73,13 @@ describe('every admin route requires a full super-admin session', () => {
   });
 
   it('marks the sensitive routes as step-up', () => {
-    const stepUpRoutes = ROUTES.filter((r) => r.stepUp).map((r) => `${r.method} ${r.path}`);
+    const stepUpRoutes = ROUTES.filter((r) => r.stepUp).map(
+      (r) => `${r.method} ${r.path}${typeof r.stepUp === 'function' ? ' (conditional)' : ''}`,
+    );
     expect(stepUpRoutes).toEqual([
+      'post /settings/:key/publish (conditional)',
+      'get /leads/export.csv',
+      'delete /leads/:id',
       'post /administrators',
       'patch /administrators/:id',
       'delete /administrators/:id',

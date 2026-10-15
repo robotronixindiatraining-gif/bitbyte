@@ -5,3 +5,4 @@ export * from './placeholders.js';
 export * from './slugs.js';
 export * from './auth.js';
 export * from './content/index.js';
+export * from './leads.js';

@@ -11,6 +11,8 @@ export const LEAD_STATUSES = Object.freeze([
   'spam',
 ]);
 
+export const NOTIFICATION_STATUSES = Object.freeze(['pending', 'accepted', 'failed', 'not_sent']);
+
 /**
  * Contact-form submissions (fields mirror the indexed form, inventory P13a). Never exposed on
  * public routes. Deleted after `expiresAt` by the retention purge (D-032).
@@ -65,11 +67,19 @@ const leadSchema = new Schema(
       ],
       default: [],
     },
+    /**
+     * Notification e-mail state. `accepted` = the provider confirmed it accepted the message
+     * (not a delivery receipt); `not_sent` = no e-mail was attempted (log driver or no recipients).
+     */
     notification: {
       type: new Schema(
         {
-          sentAt: { type: Date, default: null },
+          status: { type: String, enum: NOTIFICATION_STATUSES, default: 'pending' },
           attempts: { type: Number, default: 0 },
+          lastAttemptAt: { type: Date, default: null },
+          nextAttemptAt: { type: Date, default: null },
+          acceptedAt: { type: Date, default: null },
+          providerMessageId: { type: String, maxlength: 100, default: null },
           lastError: { type: String, maxlength: 300, default: null },
         },
         { _id: false },
@@ -83,7 +93,10 @@ const leadSchema = new Schema(
         {
           honeypot: { type: Boolean, default: false },
           fillTimeMs: { type: Number, default: null },
-          turnstile: { type: String, enum: ['pass', 'unverified', null], default: null },
+          /** Submitted faster than a person could fill in the form (< 3 s). */
+          tooFast: { type: Boolean, default: false },
+          /** pass = verified; unverified = Cloudflare unreachable; skipped = honeypot (not checked). */
+          turnstile: { type: String, enum: ['pass', 'unverified', 'skipped', null], default: null },
         },
         { _id: false },
       ),
@@ -104,5 +117,6 @@ leadSchema.index({ status: 1, createdAt: -1 });
 leadSchema.index({ email: 1 });
 leadSchema.index({ createdAt: -1 });
 leadSchema.index({ expiresAt: 1 });
+leadSchema.index({ 'notification.status': 1, 'notification.nextAttemptAt': 1 });
 
 export const Lead = mongoose.models.Lead ?? mongoose.model('Lead', leadSchema);

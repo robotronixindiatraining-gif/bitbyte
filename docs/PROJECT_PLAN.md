@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Complete rebuild of the BitByte Software Technology website (`bitbyteindia.com`) with a full content-management admin |
 | **Repository** | `bitbyte` (GitHub `robotronixindiatraining-gif/bitbyte`) |
-| **Last updated** | 2026-10-15 (Stage 03) |
+| **Last updated** | 2026-10-15 (Stage 05) |
 | **Status of stages** | `PROGRESS.md` · decisions in `DECISIONS.md` |
 
 ## 1. Goals
@@ -31,8 +31,8 @@
 | 01 | Content extraction & asset inventory | 🟡 **Partially complete.** Live source not verified (see §4, track V) |
 | 02 | Architecture & design specification | ✅ Approved with refinements (D-018–D-039) |
 | 03 | Project foundation | ✅ Approved |
-| 04 | Database & admin security foundation | 🟡 Implemented, awaiting approval |
-| 05 | CMS APIs, media & leads | ⏸ |
+| 04 | Database & admin security foundation | ✅ Approved |
+| 05 | CMS APIs, media, leads & SEO | 🟡 Implemented, awaiting approval (third-party production credentials pending) |
 | 06 | Design system implementation & public shell | ⏸ |
 | 07 | Public website | ⏸ |
 | 08 | Admin dashboard | ⏸ |
@@ -48,17 +48,17 @@
 - **Tests:** health endpoint integration test; error-handler unit tests; client renders the shell; CI pipeline.
 - **Acceptance:** on a clean machine, `npm ci && npm run dev` works; `npm run check` (no-TS guard, lint, format, tests, build, smoke) passes locally and in CI; no `.ts`/`.tsx` files; no secrets in Git. **Status:** met locally and in CI (GitHub Actions run #1 green).
 
-**04: Database & admin security foundation** (implemented 2026-10-15; awaiting approval)
+**04: Database & admin security foundation** (approved)
 - **Scope:** all Mongoose models (`DATABASE_SCHEMA.md`, incl. `orderings`); shared zod schemas and section registry; sessions with `mfa_pending`/`enrollment`/`active` stages, argon2id, login/logout/change-password, **mandatory TOTP + recovery codes, step-up re-authentication and the reset rules of D-039**, lockout, rate limits, origin check, `requireSuperAdmin`; audit log; CLI `admin:create` / `admin:reset-password` / `admin:reset-2fa`; idempotent `seed` (placeholders; no legacy redirects needed, D-038); `mongodb-memory-server` for integration tests.
 - **Depends on:** 03.
 - **Tests:** 401/403 for every admin route (generated from the route table); no full session from a password alone; enrolment-restricted sessions; TOTP replay rejected; recovery codes single-use; step-up required for sensitive actions; reset actions never clear both factors; lockout and expiry; session revocation; validation 422s; seed idempotency; schema unit tests.
 - **Acceptance:** all security tests pass; no admin route is reachable without a valid `super_admin` session; `API_REFERENCE.md` auth section matches the implementation. **Status:** met. 140 tests pass, plus a local end-to-end run against MongoDB 8.0 (`PROGRESS.md`). Scope refinements: the seed creates no portfolio projects (D-046); public content endpoints other than services, and the settings/orderings write APIs, move to Stage 05.
 
-**05: CMS APIs, media & leads**
+**05: CMS APIs, media, leads & SEO** (implemented 2026-10-15; awaiting approval)
 - **Scope:** every endpoint in `API_REFERENCE.md` §3 and §5: draft/publish/unpublish/discard/restore, preview, ordering, references and `IN_USE` checks, placeholder guard, consent/permission checks, **draft/published orderings (D-037)**, top-level slug resolution (D-038), redirects (automatic slug-change), media pipeline with the **Cloudinary** and local drivers (D-018), leads with **server-side Turnstile verification** (D-020), honeypot and the **Resend** mail adapter (D-019), lead retention purge (D-032), CSV export, erasure, careers application settings (D-031), dashboard summary, sitemap, robots and meta-injection service.
 - **Depends on:** 04. Development and tests use the local media driver, the log mailer and Cloudflare's Turnstile test keys; real Cloudinary/Resend credentials are only needed for staging/production.
 - **Tests:** integration per endpoint, including "public never returns drafts", 409 conflicts, upload rejections (wrong magic bytes, oversize, SVG), spam paths, CSV formula escaping; contract test keeping `API_REFERENCE.md` in sync.
-- **Acceptance:** coverage ≥ 80 % for services/controllers; contract test green.
+- **Acceptance:** coverage ≥ 80 % for services/controllers; contract test green. **Status:** met with mocked providers: 290+ server tests, contract test green, line coverage ≈ 89 % (services) and ≈ 85 % (controllers) (`PROGRESS.md`). Not verified against the real Cloudinary, Resend or Turnstile services (no credentials; pending, `DEPLOYMENT.md` §4b). Scope notes: the lead form fields remain provisional (D-053); no media "replace" endpoint (D-049); BreadcrumbList/FAQPage JSON-LD move to Stage 07 with the public pages.
 
 **06: Design system implementation & public shell**
 - **Scope:** Playwright + axe e2e workspace (D-040), fonts, primitives (`DESIGN_SYSTEM.md` §8), BitGrid, motion utilities (reveal, view transitions, reduced motion), header with mega-panel and mobile drawer, footer, all section renderers, `ResponsiveImage`, text-wordmark logo fallback, dev-only component catalogue route, contrast-check script.
@@ -102,7 +102,8 @@ Stage 01 could not access the live site. Content verification continues alongsid
 ## 5. Decision gates
 | Decision | Needed before |
 |---|---|
-| Stage 04 approval | Stage 05 |
+| Stage 05 approval | Stage 06 |
+| Cloudinary, Resend and Turnstile credentials (company accounts) | Verifying the production integrations (`DEPLOYMENT.md` §4b); before launch at the latest |
 | Resend evaluation result (D-019): domain verification and deliverability | Production e-mail (Stage 10); the adapter allows a different provider |
 | Cloudinary plan re-check under a company account (D-018) | Production media (Stage 10) |
 | Careers `form` application method (D-031): applicant-data destination, handling, retention | Only if the owner wants an on-site application form |

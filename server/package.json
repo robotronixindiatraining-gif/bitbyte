@@ -14,23 +14,31 @@
     "admin:reset-password": "node src/cli/admin-reset-password.js",
     "admin:reset-2fa": "node src/cli/admin-reset-2fa.js",
     "seed": "node src/cli/seed.js",
-    "secrets:generate": "node src/cli/secrets-generate.js"
+    "secrets:generate": "node src/cli/secrets-generate.js",
+    "retention:run": "node src/cli/retention-run.js",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@bitbyte/shared": "^0.1.0",
     "argon2": "^0.45.1",
+    "cloudinary": "^2.11.0",
     "cookie-parser": "^1.4.7",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.1",
+    "file-type": "^22.2.0",
     "helmet": "^8.3.0",
     "mongoose": "^9.11.2",
+    "multer": "^2.4.0",
     "otpauth": "^9.5.2",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
     "qrcode": "^1.5.4",
+    "sanitize-html": "^2.18.1",
+    "sharp": "^0.35.5",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^5.0.5",
     "mongodb-memory-server": "^11.3.0",
     "pino-pretty": "^13.2.0",
     "supertest": "^7.3.1",

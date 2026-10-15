@@ -10,9 +10,12 @@ const UNSAFE_SCHEME = /^\s*(javascript|data|vbscript):/i;
  * - "publish": strict. Required fields, formats and limits are enforced before content goes live.
  * Unknown keys are rejected in both modes (no mass assignment).
  * @param {'draft' | 'publish'} mode
+ * @param {{ sanitizeRichText?: (html: string) => string }} [options]
  */
-export function createKit(mode) {
+export function createKit(mode, { sanitizeRichText } = {}) {
   const strict = mode === 'publish';
+  // The server injects an HTML sanitiser (D-014); the client build uses the identity function.
+  const richTextBase = () => z.string().max(20_000, 'Must be at most 20000 characters');
   const kit = {
     mode,
     strict,
@@ -24,7 +27,8 @@ export function createKit(mode) {
       strict
         ? z.string().trim().min(min, 'Required').max(max, `Must be at most ${max} characters`)
         : z.string().max(max, `Must be at most ${max} characters`),
-    richText: () => z.string().max(20_000, 'Must be at most 20000 characters'),
+    richText: () =>
+      sanitizeRichText ? richTextBase().transform((v) => sanitizeRichText(v)) : richTextBase(),
     email: () => (strict ? emailSchema : z.string().max(254)),
     httpUrl: () =>
       strict

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Stage 02 **workflow specification**. Becomes the step-by-step user guide, with screenshots, in Stage 08. |
+| **Status** | Stage 02 **workflow specification**; the server side of every workflow is **implemented as of Stage 05** (API in `API_REFERENCE.md` §5; see §1.3). The admin screens arrive in Stage 08, when this becomes the step-by-step user guide with screenshots. Screen descriptions below (buttons, panels, autosave) describe Stage 08. |
 | **Audience** | The `super_admin`, the only administrative role (D-004). |
 | **Goal** | All meaningful business content is managed without touching source code. Developers are only needed for **new section types, new page templates or design-system changes**. |
 
@@ -19,11 +19,11 @@
 | Lockout | Repeated failed sign-ins lock the account temporarily; the message is always generic |
 | Two-factor (mandatory) | Every account uses an authenticator app (TOTP). At first sign-in you scan a QR code, confirm a code, and receive **10 recovery codes shown once**: store them offline. Until enrolment is complete, the account can only enrol or sign out. After enrolment, an account with a temporary password can only change it (D-026, D-039). |
 | Sign-in | E-mail + password, then a 6-digit code (or one recovery code). A password alone never opens the dashboard. |
-| Sensitive actions | Changing your password (asks for your current password and a code directly), regenerating recovery codes, managing administrators, exporting or erasing leads and changing retention ask you to **re-confirm password + code** (valid 5 minutes) |
+| Sensitive actions | Changing your password (asks for your current password and a code directly), regenerating recovery codes, managing administrators, exporting or erasing leads, and publishing the **Privacy** or **Contact form** settings ask you to **re-confirm password + code** (valid 5 minutes) |
 | Lost phone | Sign in with a recovery code, then re-enrol under Account → Two-factor |
 | Lost phone **and** recovery codes | Another super admin uses **Reset two-factor** on your account (after re-confirming their own password + code). Your sessions end, your password stays the same, and you re-enrol at next sign-in. If no other admin can help, a developer runs `npm run admin:reset-2fa` on the server. |
 | Forgotten password | Another super admin sets a temporary password (your 2FA stays in place), or a developer runs `npm run admin:reset-password`. There are no e-mail reset links (D-027). |
-| Notifications | Every password or 2FA reset and every recovery-code use is e-mailed to the affected admin and all other admins, and shown as a dashboard alert for 7 days. (Until the Resend driver arrives in Stage 05, e-mails are only recorded in the server log.) |
+| Notifications | Every password or 2FA reset and every recovery-code use is e-mailed to the affected admin and all other admins, and shown as a dashboard alert for 7 days. E-mails go through the configured mail driver: Resend in production (**credentials pending**), or the `log` driver, which sends nothing and only records the subject. |
 
 ### 1.1 Server commands (implemented in Stage 04)
 Run on the server, from the repository root. They need the same environment as the server (`server/.env` locally, the host's secret store in production). **In production every command refuses to run unless `--allow-production` is added**, so an account cannot be created by accident. No command accepts a password: temporary passwords are generated, shown once, and must be changed at first sign-in.
@@ -36,6 +36,7 @@ Run on the server, from the repository root. They need the same environment as t
 | Forgotten password (no other admin available) | `npm run admin:reset-password -- --email you@example.com` | New temporary password; all sessions end; **2FA unchanged** |
 | Lost authenticator **and** recovery codes (no other admin available) | `npm run admin:reset-2fa -- --email you@example.com` | 2FA and recovery codes cleared; all sessions end; **password unchanged**; re-enrol at next sign-in |
 | Insert missing placeholder content | `npm run seed` | Inserts only what is missing; never changes edited content or admin accounts; publishes nothing |
+| Check / run the lead retention purge | `npm run retention:run` (count only) · `npm run retention:run -- --apply` (delete) | Counts, or deletes, leads whose retention period has ended, exactly like the daily job. Deletion cannot be undone. |
 
 Every command is recorded in the activity log as `system:cli`.
 
@@ -46,11 +47,19 @@ Every command is recorded in the activity log as `system:cli`.
 4. Choose a new password (at least 12 characters; very common passwords are refused). You need the current password and a fresh code.
 5. You now have full access. Signing in later always needs password + code.
 
+### 1.3 Before the admin screens exist (Stage 05–07)
+Every workflow below already works through the API with a signed-in session (`API_REFERENCE.md` §5, Appendix A lists every route). This is for developers and for testing; it is not how the owner is expected to work. Key points that the screens will rely on:
+- Each save sends the `revision` you loaded; a 409 `EDIT_CONFLICT` means someone else saved first.
+- Publishing reports every blocking problem with the field path (`details`).
+- `GET /api/v1/admin/preview/…` returns what the public site would show if everything pending were published.
+- `GET /api/v1/admin/dashboard` returns the "needs attention" lists of §2.
+
 ## 2. Dashboard
 On sign-in the dashboard shows, from the top:
-1. **Needs attention:** new leads (count + latest 5), content with **unpublished changes**, content with **`[CONFIRM …]` placeholders** (each links to the exact field), **broken references** (e.g. a page section pointing at an archived project), and failed lead-notification e-mails.
-2. **Site status:** published counts for pages, services, projects, testimonials and open jobs; last publish time.
-3. **Recent activity:** the last 10 audit entries.
+1. **Needs attention:** new (unread) leads, leads flagged as possible spam, content with **unpublished changes**, content with **`[CONFIRM …]` placeholders** (each links to the exact field), **broken references** (e.g. a live page section pointing at an archived project; the public site simply leaves it out), and failed lead-notification e-mails.
+2. **Site status:** published and total counts for pages, services, projects, testimonials and jobs; media count.
+3. **Recent content changes** and **recent activity** (last 20 audit entries, shown with the administrator's name).
+The dashboard never shows lead names, contact details or messages.
 4. **Quick actions:** New project, New job, Upload media, View site.
 
 ## 3. Content lifecycle (applies to settings, pages, services, projects, testimonials, jobs)
@@ -67,13 +76,15 @@ On sign-in the dashboard shows, from the top:
 ```
 
 - **Save draft** never changes the live site. Incomplete drafts are allowed.
-- **Preview** opens `/admin/preview/…` in a new tab, rendered with the real public design, a yellow "Preview: not published" bar and `noindex`. Preview shows *all* pending drafts together (e.g. a page plus a draft service it references).
+- **Preview** opens `/admin/preview/…` in a new tab, rendered with the real public design, a yellow "Preview: not published" bar and `noindex`. Preview shows *all* pending drafts together (e.g. a page plus a draft service it references, in the draft order). Archived items, testimonials without consent, projects without permission and closed jobs stay hidden in preview too, because they could not be published either.
 - **Publish** runs these checks and lists every problem at once, each linking to its field:
   1. All required fields complete (strict validation).
   2. **No `[CONFIRM …]` placeholders** (D-015).
-  3. Every referenced service, project, testimonial or image is published or exists.
-  4. Projects: **client permission recorded**. Testimonials: **consent recorded**.
-  5. Slug valid and unique. If the slug changed, a 301 redirect from the old URL is **created automatically**.
+  3. Projects: **client permission recorded**. Testimonials: **consent recorded**.
+  4. Pages: the template's rules (required section, allowed section types).
+  5. Every referenced service, project, testimonial or job is published; every image and category exists.
+  6. Slug valid and unique. If the slug changed, a 301 redirect from the old URL is **created automatically**, and older redirects are re-pointed so there are no chains.
+- **Withdrawing consent or permission** takes a published testimonial or project off the site immediately.
 - **Publish note** (optional) is stored in the revision history.
 - **History:** each publish keeps a revision (last 25). **Restore** copies an old version into the draft so it can be reviewed and published again.
 - **Edit conflicts:** if the same item was saved elsewhere since you opened it (another admin or another tab), saving shows "This item changed since you opened it" with options to **reload** or **copy my changes**. Nothing is silently overwritten.
@@ -115,9 +126,9 @@ On sign-in the dashboard shows, from the top:
 | **Footer** | Up to four link columns, show-contact toggle, copyright holder, bottom links |
 | **Social** | Profiles (LinkedIn, Instagram, Facebook, X, YouTube, GitHub, WhatsApp) |
 | **SEO defaults** | Title template, default description, default share image, organisation details for structured data, Search Console verification |
-| **Contact form** | Budget options, consent text, success message, **notification recipients** (private, max 5; e-mails sent via Resend, D-019) |
+| **Contact form** | Budget options, consent text, success message, **notification recipients** (private, max 5; e-mails sent via Resend, D-019). Publishing needs re-confirmation (D-058). The form stays switched off (visitors see "not available") until this tab is published and the server has a Turnstile secret (D-051). |
 | **Careers** | Application method: *Instructions* (default: free text per job), *E-mail* (careers address), *External link*, or *On-site form* (**unavailable until applicant-data handling is confirmed**, D-031) |
-| **Privacy** | Lead retention in days (default **365**, allowed 30–1095; spam 30 days). Changing it needs re-confirmation, and the new value applies to all stored leads (D-032). |
+| **Privacy** | Lead retention in days (default **365**, allowed 30–1095) and spam retention (default 30, allowed 1–90). Publishing needs re-confirmation, and the new values apply to all stored leads immediately (D-032). |
 | **Integrations** | Turnstile site key (public; the secret is on the server, D-020). Analytics is **deferred** (D-033). Secret keys are never entered here. |
 
 Seeded values carry `[CONFIRM …]` placeholders from `CONTENT_GAPS.md` (company name, legal entity, phones, e-mails, hours, consent text, budget options…). The dashboard lists every one until it is resolved.
@@ -126,27 +137,28 @@ Seeded values carry `[CONFIRM …]` placeholders from `CONTENT_GAPS.md` (company
 - **Fields:** SEO title (≤ 70, live counter), meta description (≤ 170), share image, "hide from search engines" (noindex), and an advanced canonical override.
 - **Live Google-style result preview** and social-card preview.
 - **Defaults:** the entity title + title template; the description falls back to the summary; the share image falls back to the cover/hero, then the site default.
-- **Automatic:** sitemap, robots.txt, canonical URLs, JSON-LD (Organization/LocalBusiness from settings, Service, BreadcrumbList, JobPosting, FAQPage).
-- **Redirects** (SEO & Redirects screen): list with hit counts; add, edit, disable, delete. Loops, chains and reserved paths are rejected. Slug-change redirects appear here automatically. The four known legacy redirects are pre-loaded.
+- **Automatic:** sitemap, robots.txt, canonical URLs, JSON-LD from published settings and content (implemented: Organization on the homepage, Service, JobPosting; BreadcrumbList and FAQPage follow with the public pages in Stage 07).
+- **Search engines are kept out** of every environment until the launch switch `ROBOTS_ALLOW_INDEXING=true` is set in production (D-050). Pages marked "hide from search engines" are left out of the sitemap.
+- **Redirects** (SEO & Redirects screen): list with hit counts; add, edit, disable, delete. Loops, chains, reserved paths and paths used by a page or item are rejected. Slug-change redirects appear here automatically. The list starts empty: the indexed legacy URLs are preserved as they are (D-038).
 
 ## 10. Media library
 - **Upload:** drag-and-drop or file picker; JPEG/PNG/WebP/AVIF up to 10 MB. **Alt text is required** unless marked decorative. Optional caption, credit and licence (required for stock images).
-- Images are automatically resized into responsive versions, converted to modern formats and stripped of location/camera metadata. Duplicates are detected and the existing file is offered instead.
+- Images are checked by content (not by file name), scaled to at most 4096 px, re-encoded and stripped of location/camera metadata; responsive sizes and modern formats are served by Cloudinary. Uploading the same file again returns the existing image instead of a copy.
 - **Library:** grid and list views, search by alt/filename/tag, folder filter.
 - **Detail panel:** preview, dimensions, size, alt/caption editing (alt changes update every page using the image, immediately), and **"Used in"** (every page/entity and whether that usage is draft or live).
-- **Replace image:** upload a new file and choose which usages to switch, or switch all.
-- **Delete:** only when "Used in" is empty. Otherwise the dialog lists the usages to change first.
+- **Replace image:** upload the new image and switch each usage listed under "Used in" (images are never overwritten in place, so published pages and revisions keep the exact file they were published with; D-049).
+- **Delete:** only when "Used in" is empty (drafts count too). Otherwise the dialog lists the usages to change first. If the media service is unreachable, nothing is deleted and you can try again.
+- **Production uploads are switched off** until the Cloudinary account is connected (credentials pending).
 - **Not allowed:** SVG, GIF and HEIC uploads (security/performance). Brand SVGs are added by a developer.
 
 ## 11. Leads (contact submissions)
 - **Inbox:** table of date, name, company, budget, service, status. Filters by status, type and date range; search by name/company/e-mail. New leads are bold.
 - **Lead detail:** all submitted fields, source page, UTM data, consent text and time, notification status (with **Resend**), status selector, notes timeline (add note), and quick actions (reply by e-mail, call).
-- **Statuses:** New → Contacted → In discussion → Won / Lost; plus **Spam**. Leads flagged by spam checks arrive in a separate "Possible spam" view rather than being silently discarded.
-- **Export:** CSV of the current filter (audited).
-- **Export:** requires re-confirmation (password + code).
+- **Statuses:** New → Contacted → In discussion → Won / Lost; plus **Spam**. Submissions whose bot check could not be completed (Cloudflare unreachable) or that were filled in implausibly fast arrive in a separate **"Possible spam"** view rather than being discarded. Obvious bot submissions (hidden honeypot field filled) are stored directly as Spam. Moving a lead to or from Spam switches its retention period.
+- **Export:** CSV of the current filter (max 10 000 rows), after re-confirmation (password + code). Cells are protected against spreadsheet formula injection. The export is audited (row count only).
 - **Erase:** permanently deletes a lead on the person's request (re-confirmation + type "DELETE"; audited without personal data).
 - **Automatic retention:** leads are deleted automatically once older than the retention period (default 365 days; spam 30 days). Each lead shows its scheduled deletion date. Deleted data remains only in backups until they expire (≤ 35 days).
-- **E-mail notifications** go to the recipients in Settings → Contact form (D-019).
+- **E-mail notifications** go to the recipients in Settings → Contact form (D-019). They say only that a new enquiry arrived, with a link to it here; names, contact details and messages are not e-mailed (D-052). The lead shows the notification status: *Accepted by the mail provider* (not a delivery receipt), *Pending* (retrying automatically), *Failed* or *Not sent* (no e-mail service configured). **Re-send** tries again.
 
 ## 12. Administrators & activity
 - **Administrators:** list, add (name, e-mail, temporary password; the new admin must enrol 2FA), disable or enable, delete, **reset password** (2FA unchanged), **reset two-factor** (password unchanged), revoke sessions. Every action here needs re-confirmation and is audited and notified. You can't disable, delete or reset your own account here, or disable the last active admin (D-039).

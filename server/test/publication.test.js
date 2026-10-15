@@ -266,12 +266,12 @@ describe('public routes expose published content only', () => {
       revision: a.revision,
       draft: { ...a.draft, title: 'UNPUBLISHED EDIT' },
     });
-    await Ordering.create({
-      key: 'services',
-      status: 'published',
-      draft: { ids: [] },
-      published: { ids: [String(b._id), String(a._id)] },
-    });
+    // New services join the DRAFT order only; the live order is what was published.
+    const order = await Ordering.findOne({ key: 'services' });
+    expect(order.status).toBe('draft');
+    expect(order.draft.ids).toHaveLength(4);
+    order.set({ status: 'published', published: { ids: [String(b._id), String(a._id)] } });
+    await order.save();
 
     const res = await request(buildApp()).get('/api/v1/public/services');
     expect(res.status).toBe(200);
@@ -325,6 +325,7 @@ describe('audit dependency', () => {
           begin: async () => {
             throw new Error('audit store down');
           },
+          recordSafely: async () => {},
         },
       },
     });

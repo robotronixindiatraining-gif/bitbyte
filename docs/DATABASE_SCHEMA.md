@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented in Stage 04**: all 15 collections, their indexes and validation (`server/src/models/`). Content shapes are validated by the shared zod schemas (`shared/src/content/`). Collection endpoints arrive in Stage 05. |
+| **Status** | **Implemented** (Stage 04 models; Stage 05 workflows and endpoints): all 15 collections, their indexes and validation (`server/src/models/`). Content shapes are validated by the shared zod schemas (`shared/src/content/`); the server instance of those schemas also sanitises rich text (`server/src/content/`). |
 | **Database** | One MongoDB database (`bitbyte`). Dev: `mongodb://127.0.0.1:27017/bitbyte`. Prod: MongoDB Atlas (D-021). |
 | **Principles** | Hybrid CMS (D-008) · draft/published dual state (D-009) · optimistic concurrency (D-010) · media by reference, binaries in object storage (D-013) · placeholders block publishing (D-015) |
 
@@ -71,7 +71,8 @@ Used by `settings`, `pages`, `services`, `projects`, `testimonials`, `jobOpening
 ```
 
 **Rules**
-- **Public reads** filter on `status: 'published'` and project **only** `slug` + `published`. Listing order comes from the published `orderings` document (D-037). Draft fields never leave the server on public routes.
+- **Public reads** filter on `status: 'published'` and project **only** `slug`, `template`, `published` and dates. Listing order comes from the published `orderings` document (D-037). Draft fields never leave the server on public routes, and references are resolved through the same filter (`server/src/services/resolver.js`).
+- **Writes** (Stage 05, `server/src/services/contentService.js`): every draft save, discard and restore is a single `updateOne` guarded by `{ _id, revision }` and increments `revision`; publish re-checks the revision in its atomic update. Derived fields (`placeholders`, `mediaRefs`, `entityRefs`) are recomputed on every write. New items are appended to their list's **draft** order.
 - **Draft save:** `updateOne({ _id, revision: clientRevision }, { $set: { draft, … }, $inc: { revision: 1 } })`. If no document matched → 409 `EDIT_CONFLICT`. The save is atomic in one document.
 - **Publish:**
   1. Validate `draft` with the strict *publishable* schema.
@@ -299,12 +300,12 @@ Indexes: `{ slug: 1 }` unique · `{ status: 1, 'published.closesAt': 1 }`.
 | Field | Type | Rules |
 |---|---|---|
 | `driver` | String | `cloudinary` (production, D-018) or `local` (development) |
-| `storageKey` | String | Cloudinary `public_id` (`bitbyte/<env>/<uuid>`) or local key; never the user's filename; **unique** |
+| `storageKey` | String | Cloudinary `public_id` (`bitbyte/<env>/<uuid>`) or local key (`<uuid>.<ext>`); never the user's filename; **unique** |
 | `version` | Number | Cloudinary asset version (cache-busting in delivery URLs) |
 | `format` | String | stored format after normalisation |
 | `url` | String | canonical delivery URL of the normalised original (secure HTTPS) |
 
-Responsive variants are **not stored**: delivery URLs are generated from `storageKey` + `version` with fixed transformations (`f_auto,q_auto,c_limit,w_{480|768|1024|1440|1920}`), capped at the original width. The `local` driver writes the same fixed widths to disk in development.
+Responsive variants are **not stored**: Cloudinary delivery URLs are generated from `storageKey` + `version` with fixed transformations (`f_auto,q_auto,c_limit,w_{480|768|1200|1600|2400}`), capped at the stored width. The `local` driver (development only) offers the single stored file as its only variant. Stored images are already normalised (≤ 4096 px longest edge, re-encoded, metadata stripped; D-049).
 | `originalFilename` | String | sanitised, display only |
 | `mimeType` | enum | `image/jpeg`, `image/png`, `image/webp`, `image/avif` (verified by magic bytes) |
 | `bytes`, `width`, `height` | Number | |
@@ -314,16 +315,16 @@ Responsive variants are **not stored**: delivery URLs are generated from `storag
 | `caption`, `credit`, `licence` | String | licence/credit required for stock imagery |
 | `folder` | String | e.g. `brand`, `services`, `portfolio` |
 | `tags` | `[String]` | |
-| `checksum` | String | SHA-256 of the original; duplicate uploads are detected and offered for reuse |
+| `checksum` | String | SHA-256 of the original upload; a repeat upload returns the existing item (`duplicateOf`) |
 | `uploadedBy` | ObjectId → admins | |
 | timestamps | | |
 
 **No binary data in MongoDB.** Content stores `media` ObjectIds, never URLs. URLs, alt text and variants are resolved at read time, so replacing an image or fixing alt text updates every usage.
-**Deletion** removes the Cloudinary asset (signed server-side API call) and then the document. It is allowed only when `count(collection.find({ mediaRefs: id }))` is 0 across `pages`, `services`, `projects`, `testimonials`, `jobOpenings` and `settings`. `mediaRefs` covers drafts **and** published snapshots, plus `revisions` from the last 90 days, so a restore can't point to a deleted file.
+**Deletion** removes the stored file first (signed server-side API call; "not found" counts as deleted) and then the document; if the provider call fails nothing changes (D-049). It is allowed only when `count(collection.find({ mediaRefs: id }))` is 0 across `pages`, `services`, `projects`, `testimonials`, `jobOpenings` and `settings`; `mediaRefs` covers drafts **and** published snapshots. Revisions also record `mediaRefs`, but do not block deletion: restoring a revision whose image was deleted gives a draft that cannot be published until the image is replaced (`REFERENCE_NOT_PUBLISHED`), so nothing live can point to a missing file. (Stage 02 planned a 90-day revision hold; it was dropped as unnecessary given that publish check.)
 Indexes: `{ storageKey: 1 }` unique · `{ checksum: 1 }` · `{ folder: 1, createdAt: -1 }` · text index on `alt`, `originalFilename`, `tags`.
 
 ### 3.11 `leads`
-Fields mirror the indexed contact form (inventory P13a), so no business field is invented.
+Fields mirror the indexed contact form (inventory P13a), so no business field is invented. **They are provisional** until the original form is verified (CG-20, D-053); the submission schema is `shared/src/leads.js`.
 
 | Field | Type | Rules |
 |---|---|---|
@@ -341,27 +342,27 @@ Fields mirror the indexed contact form (inventory P13a), so no business field is
 | `consent` | `{ given: true, text: String, at: Date }` | the exact consent text shown is copied in (DPDP evidence) |
 | `status` | enum | `new` → `contacted` → `in_discussion` → `won` \| `lost`; also `spam` |
 | `notes` | `[{ admin: ObjectId, text ≤ 2000, at }]` | |
-| `notification` | `{ sentAt: Date\|null, attempts: Number, lastError: String\|null }` | |
+| `notification` | `{ status: 'pending'\|'accepted'\|'failed'\|'not_sent', attempts, lastAttemptAt, nextAttemptAt, acceptedAt, providerMessageId, lastError }` | `accepted` = the provider confirmed acceptance (not delivery); `not_sent` = log driver or no recipients; retries with back-off (D-052) |
 | `ipHash` | String | salted SHA-256; raw IPs are not stored |
 | `userAgent` | String ≤ 300 | |
-| `spamSignals` | `{ honeypot: Boolean, fillTimeMs: Number, turnstile: 'pass'|'unverified' }` | `unverified` = Cloudflare unreachable (D-020); invalid tokens are rejected with 422 and never stored |
-| `expiresAt` | Date | `createdAt + settings.privacy.leadRetentionDays` (spam: 30 days); recomputed when the setting changes |
+| `spamSignals` | `{ honeypot: Boolean, fillTimeMs: Number\|null, tooFast: Boolean, turnstile: 'pass'\|'unverified'\|'skipped' }` | `unverified` = Cloudflare unreachable (D-020, D-051); `skipped` = honeypot (not verified); `tooFast` = under 3 s; invalid tokens are rejected with 422 and never stored |
+| `expiresAt` | Date | `createdAt + settings.privacy.leadRetentionDays` (spam: `spamRetentionDays`, default 30); recomputed for every lead when the privacy settings are published and when a lead moves into/out of `spam` |
 | timestamps | | |
 
-Leads are **never** exposed on public routes. **Retention (D-032):** configurable, **default 365 days**, never indefinite. A daily purge job hard-deletes leads whose `expiresAt` has passed and records one audit entry with counts only. Erasure on request = hard delete + audit entry without PII. Deleted data persists only in database backups until they expire (≤ 35 days, `DEPLOYMENT.md`). Index `{ expiresAt: 1 }` (used by the purge job; not a TTL index, so every deletion is audited).
-Indexes: `{ status: 1, createdAt: -1 }` · `{ email: 1 }` · `{ createdAt: -1 }`.
+Leads are **never** exposed on public routes. **Retention (D-032, D-055):** configurable, **default 365 days** (spam 30), never indefinite. A daily purge job (in-process scheduler) hard-deletes leads whose `expiresAt` has passed, in batches, and records one audit entry with counts only; it is safe to re-run and a failed run is completed by the next one. `npm run retention:run` does the same manually (dry run unless `--apply`). Erasure on request = hard delete + audit entry without PII. Deleted data persists only in database backups until they expire (≤ 35 days, `DEPLOYMENT.md`). Index `{ expiresAt: 1 }` (used by the purge job; not a TTL index, so every deletion is audited).
+Indexes: `{ status: 1, createdAt: -1 }` · `{ email: 1 }` · `{ createdAt: -1 }` · `{ expiresAt: 1 }` · `{ 'notification.status': 1, 'notification.nextAttemptAt': 1 }` (retry job).
 
 ### 3.12 `redirects`
 | Field | Type | Rules |
 |---|---|---|
 | `fromPath` | String | normalised (lower-case, no trailing slash, no query), **unique** |
-| `toPath` | String | internal path or absolute https URL; must not create a loop or chain longer than 1 |
+| `toPath` | String | internal path or absolute https URL; must not create a loop or a chain (D-056) |
 | `statusCode` | 301 \| 302 | |
 | `enabled` | Boolean | |
 | `source` | enum | `legacy`, `slug-change`, `manual` |
 | `hits`, `lastHitAt` | Number, Date | incremented asynchronously |
 
-Starts **empty**: the indexed legacy URLs are preserved (D-038). Trailing-slash, case and host normalisation are handled in code, not stored here. The fromPath can't be a reserved prefix (`/api`, `/admin`).
+Starts **empty**: the indexed legacy URLs are preserved (D-038). Trailing-slash, case and host normalisation are handled in code, not stored here. The fromPath can't be a reserved path (`/`, `/api`, `/admin`, `/uploads`, `/assets`, `sitemap.xml`, `robots.txt`) or a path used by content (D-056). Slug changes of published items add `slug-change` redirects automatically.
 Indexes: `{ fromPath: 1 }` unique.
 
 ### 3.13 `revisions`
@@ -373,8 +374,9 @@ Indexes: `{ fromPath: 1 }` unique.
 | `snapshot` | Object (the published content + slug) |
 | `publishedBy`, `publishedAt` | ObjectId, Date |
 | `note` | String ≤ 200 (optional publish note) |
+| `mediaRefs` | `[ObjectId → media]` (images in the snapshot; Stage 05) |
 
-Retention: the latest **25 per entity** (pruned on publish). Indexes: `{ entityType: 1, entityId: 1, publishedAt: -1 }`.
+Retention: the latest **25 per entity** (pruned on publish). Restoring copies the snapshot into the draft (never straight to live). Indexes: `{ entityType: 1, entityId: 1, publishedAt: -1 }` · `{ mediaRefs: 1, publishedAt: -1 }`.
 
 ### 3.14 `auditLogs`
 | Field | Type |

@@ -1,12 +1,11 @@
 import { z } from 'zod';
-import { createKit } from './kit.js';
 import { imageRefSchema, linkSchema } from './primitives.js';
 
 /**
  * Approved section types (D-008, docs/DATABASE_SCHEMA.md §4). Only developers add types.
  * Each builder receives a kit, so one definition yields the draft and publish schemas.
  */
-const SECTION_BUILDERS = {
+export const SECTION_BUILDERS = {
   hero: (k) =>
     k
       .object({
@@ -165,21 +164,16 @@ export const SECTION_TYPES = Object.freeze(Object.keys(SECTION_BUILDERS));
 export const SECTION_BACKGROUNDS = Object.freeze(['light', 'muted', 'dark']);
 export const SECTION_SPACINGS = Object.freeze(['default', 'compact']);
 
-const kits = { draft: createKit('draft'), publish: createKit('publish') };
-const sectionDataSchemas = Object.fromEntries(
-  Object.entries(kits).map(([mode, k]) => [
-    mode,
-    Object.fromEntries(Object.entries(SECTION_BUILDERS).map(([type, build]) => [type, build(k)])),
-  ]),
-);
-
-/** Schema for a section's `data` for one type and mode. */
-export function sectionDataSchema(type, mode) {
-  return sectionDataSchemas[mode][type];
+/** Build the data schema of every section type for one kit. */
+export function buildSectionDataSchemas(k) {
+  return Object.fromEntries(
+    Object.entries(SECTION_BUILDERS).map(([type, build]) => [type, build(k)]),
+  );
 }
 
 /** Section envelope; `data` is validated by the registry entry for `type`. */
 export function sectionSchema(k) {
+  const dataSchemas = buildSectionDataSchemas(k);
   return k
     .object({
       key: z.string().regex(/^[a-z0-9-]{1,40}$/i, 'Invalid section key'),
@@ -202,15 +196,16 @@ export function sectionSchema(k) {
       ),
       data: z.unknown(),
     })
-    .superRefine((section, ctx) => {
-      const schema = sectionDataSchema(section.type, k.mode);
-      if (!schema) return;
-      const result = schema.safeParse(section.data ?? {});
+    .transform((section, ctx) => {
+      // Validate `data` with the type's schema and keep its OUTPUT (e.g. sanitised rich text).
+      const result = dataSchemas[section.type].safeParse(section.data ?? {});
       if (!result.success) {
         for (const issue of result.error.issues) {
           ctx.addIssue({ code: 'custom', path: ['data', ...issue.path], message: issue.message });
         }
+        return z.NEVER;
       }
+      return { ...section, data: result.data };
     });
 }
 

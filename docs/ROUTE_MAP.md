@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Last updated** | 2026-10-15 (Stage 02 refinements: legacy top-level URLs preserved, D-038) |
+| **Last updated** | 2026-10-15 (Stage 05: normalisation, redirects and 404s implemented; Stage 02 refinements: legacy top-level URLs preserved, D-038) |
 | **Source of legacy URLs** | Search-engine indexes only (`indexed_unverified`). The live site has **not** been crawled (`STAGE_LOG.md`, Stage 01 §2). |
 | **Excluded** | `training.bitbyteindia.com/*`: separate property (D-003). Not migrated, no redirects. |
 | **Policy** | **Preserve existing URLs wherever practical.** Redirects are added only when necessary (D-038). |
@@ -23,8 +23,9 @@ The index holds URLs on **both hosts and both protocols**: `https://www.bitbytei
 |---|---|---|---|
 | `http://…/*` | `https://…/*` | 301 | At the host/proxy; enabled at launch |
 | `https://bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | **Provisional (D-028).** Config-driven (`CANONICAL_HOST`), **disabled by default**; enabled only after verifying the actual DNS/TLS setup and Search Console's preferred host |
-| Path with trailing slash (e.g. `/careers/`) | Same path without it (`/careers`) | 301 | Normalisation, to avoid duplicate URLs. Necessary because the legacy site mixes both styles. |
-| Upper-case path | Lower-case | 301 | Normalisation |
+| Path with trailing slash (e.g. `/careers/`) | Same path without it (`/careers`) | 301 | **Implemented (Stage 05).** Normalisation, to avoid duplicate URLs. Necessary because the legacy site mixes both styles. Query strings are kept. |
+| Upper-case path | Lower-case | 301 | **Implemented (Stage 05)** |
+| Repeated slashes (`//careers`) | Single slash (`/careers`) | 301 | **Implemented (Stage 05)**; the target is always a site path, never `//host` |
 
 ## 2. Public routes
 
@@ -56,12 +57,12 @@ The index holds URLs on **both hosts and both protocols**: `https://www.bitbytei
 
 ## 3. Redirects
 
-**Required at launch:** only the normalisations in §1 (protocol, trailing slash, case). Host canonicalisation follows after verification.
+**Required at launch:** only the normalisations in §1 (protocol, trailing slash, case). Host canonicalisation follows after verification. Unknown and unpublished paths answer a real **404** (Stage 05).
 
 **No redirects** are needed for the indexed service URLs; they are preserved as-is.
 
 **Later, automatic or managed:**
-- slug changes made in the CMS (created on publish, `DATABASE_SCHEMA.md` §3.12);
+- slug changes made in the CMS (created on publish, `DATABASE_SCHEMA.md` §3.12; implemented in Stage 05, chains are re-pointed automatically, D-056);
 - any legacy URL found later (crawl, export or Search Console) that can't be preserved.
 
 ## 4. Non-public routes (new)

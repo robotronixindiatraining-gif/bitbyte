@@ -2,7 +2,7 @@
 
 A complete rebuild of the **BitByte Software Technology** company website (`bitbyteindia.com`): a premium, responsive public site plus a secure admin dashboard where super administrators manage all business content without code changes.
 
-> **Status:** Stage 04 (database and admin security foundation) is complete and awaiting approval. Built so far: the data models, super-admin authentication with mandatory two-factor, the admin CLI, the placeholder seed and the security tests. The public website, CMS endpoints and admin UI come in later stages. See [`docs/PROGRESS.md`](docs/PROGRESS.md).
+> **Status:** Stage 05 (CMS APIs, media, leads and SEO) is implemented and awaiting approval. Built so far: the data models, super-admin authentication with mandatory two-factor, the admin CLI and seed, the complete CMS/admin API (drafts, preview, publishing, revisions, orderings, media, leads, redirects, dashboard), the public read API, lead retention, and server-rendered SEO metadata, sitemap and robots. **Cloudinary, Resend and Turnstile production configuration is pending** (no credentials yet; tested with mocks). The visual design, public pages and admin screens come in Stages 06–08. See [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 ## Stack
 MongoDB (Mongoose 9) · Express 5 · React 19 (Vite 8) · Node.js 22 LTS · Tailwind CSS v4. **JavaScript only. TypeScript is not allowed anywhere** (enforced by `npm run check:no-ts`).
@@ -10,7 +10,7 @@ MongoDB (Mongoose 9) · Express 5 · React 19 (Vite 8) · Node.js 22 LTS · Tail
 ## Repository layout
 ```
 client/   React app (public website + admin UI), Vite, Tailwind tokens
-server/   Express API (/api/v1), security headers, logging, health checks, serves the client build
+server/   Express API (/api/v1), CMS/media/lead services, SEO HTML shell, sitemap/robots, jobs, CLI
 shared/   Plain-JS constants, error codes and zod validation helpers used by client and server
 scripts/  Repository tooling: TypeScript guard, smoke test
 docs/     Project documentation (see below)
@@ -30,6 +30,8 @@ npm run admin:create -- --email you@example.com --name "Your Name"   # prints a 
 npm run dev                              # API on :4000 + Vite on :5173 (proxies /api to the API)
 ```
 Open http://localhost:5173. The temporary foundation page shows whether the client can reach the API and the database. The admin UI arrives in Stage 08; until then the admin API can be exercised over HTTP (`docs/API_REFERENCE.md`). First sign-in = password → authenticator enrolment → new password (`docs/ADMIN_GUIDE.md` §1.2).
+
+Development needs no third-party accounts: media are stored in `server/uploads/` (git-ignored), e-mails are not sent (`MAIL_DRIVER=log`), and search engines are blocked. The public contact form answers 503 until a Turnstile secret is set (Cloudflare's documented test keys work locally) and the Contact form settings are published.
 
 `server/.env` is loaded only when it exists, and real environment variables take precedence. **Never commit `.env` files or generated secrets.** Only the `*.env.example` files, which hold placeholders, are tracked.
 
@@ -51,11 +53,13 @@ Open http://localhost:5173. The temporary foundation page shows whether the clie
 | `npm run admin:list` | Lists administrators (no secrets) |
 | `npm run admin:reset-password -- --email …` | Emergency password reset (2FA unchanged) |
 | `npm run admin:reset-2fa -- --email …` | Emergency 2FA reset (password unchanged) |
+| `npm run retention:run` | Counts leads past their retention date (dry run); add `-- --apply` to delete them |
+| `npm run test:coverage -w server` | Server tests with a coverage report (target ≥ 80 % lines for services/controllers) |
 
-Admin and seed commands refuse to run with `NODE_ENV=production` unless `--allow-production` is added (`docs/ADMIN_GUIDE.md` §1.1).
+Admin, seed and retention commands refuse to run with `NODE_ENV=production` unless `--allow-production` is added (`docs/ADMIN_GUIDE.md` §1.1).
 
 ### Tests and MongoDB
-Server tests start a throwaway MongoDB per test file with `mongodb-memory-server` (pinned to 8.0.34). They never touch your development database. The `mongod` binary is downloaded on first run. Where downloads are blocked, point the tests at a local `mongod` 8.0 binary:
+Server tests start a throwaway MongoDB per test file with `mongodb-memory-server` (pinned to 8.0.34). They never touch your development database, and Cloudinary, Resend and Turnstile are replaced by test doubles, so no credentials or network access to those services are needed. `server/test/contract.test.js` keeps `docs/API_REFERENCE.md` in sync with the routes. The `mongod` binary is downloaded on first run. Where downloads are blocked, point the tests at a local `mongod` 8.0 binary:
 ```bash
 MONGOMS_SYSTEM_BINARY=/path/to/mongod npm test
 ```
@@ -63,7 +67,7 @@ MONGOMS_SYSTEM_BINARY=/path/to/mongod npm test
 Workspace-specific scripts: `npm run <script> -w server|client|shared`.
 
 ## Configuration
-Server settings are environment variables, validated at start-up by `server/src/config/env.js`. The server refuses to start with invalid configuration and lists every problem. See `server/.env.example` for the variables used now and those reserved for later stages, and `docs/ARCHITECTURE.md` §8 for the full list. In production, `PUBLIC_SITE_URL` (https), `MONGODB_URI`, `TOTP_ENCRYPTION_KEY`, `RECOVERY_CODE_PEPPER` and `IP_HASH_SALT` are required.
+Server settings are environment variables, validated at start-up by `server/src/config/env.js`. The server refuses to start with invalid configuration and lists every problem. See `server/.env.example` and `docs/ARCHITECTURE.md` §8 for the full list. In production, `PUBLIC_SITE_URL` (https), `MONGODB_URI`, `TOTP_ENCRYPTION_KEY`, `RECOVERY_CODE_PEPPER` and `IP_HASH_SALT` are required. Cloudinary (`MEDIA_DRIVER=cloudinary`, `CLOUDINARY_URL`), Resend (`MAIL_DRIVER=resend`, `RESEND_API_KEY`, `MAIL_FROM`) and Turnstile (`TURNSTILE_SECRET_KEY`) are activated by configuration only; until then uploads and the contact form answer 503 and no e-mail is sent (`docs/DEPLOYMENT.md` §4–4b). Search indexing requires `ROBOTS_ALLOW_INDEXING=true` in production; the canonical-host redirect (`CANONICAL_HOST`) stays off until the domain is verified.
 
 ## Key decisions
 - One deployable Node service serves the website, the admin UI and a versioned REST API (`/api/v1`) from a single domain.

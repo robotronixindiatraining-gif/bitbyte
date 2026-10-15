@@ -147,22 +147,31 @@ describe('client hosting', () => {
   beforeAll(() => {
     distDir = mkdtempSync(path.join(tmpdir(), 'bitbyte-dist-'));
     mkdirSync(path.join(distDir, 'assets'));
-    writeFileSync(path.join(distDir, 'index.html'), '<!doctype html><div id="root"></div>');
+    writeFileSync(
+      path.join(distDir, 'index.html'),
+      '<!doctype html><html><head><title>Shell</title></head><body><div id="root"></div></body></html>',
+    );
     writeFileSync(path.join(distDir, 'assets', 'app-abc123.js'), 'console.log(1)');
   });
   afterAll(() => rmSync(distDir, { recursive: true, force: true }));
 
-  it('serves the SPA shell for client routes and caches hashed assets', async () => {
-    const app = buildApp({ env: { CLIENT_DIST_DIR: distDir } });
+  it('serves the app shell (503 while the database is down) and caches hashed assets', async () => {
+    const app = buildApp({ dbState: 'down', env: { CLIENT_DIST_DIR: distDir } });
 
     const home = await request(app).get('/');
-    expect(home.status).toBe(200);
+    expect(home.status).toBe(503);
     expect(home.text).toContain('id="root"');
-    expect(home.headers['cache-control']).toBe('no-cache');
+    expect(home.text).toContain('<meta name="robots" content="noindex, nofollow" />');
+    expect(home.headers['cache-control']).toBe('no-store');
+    expect(home.headers['retry-after']).toBe('60');
 
     const deep = await request(app).get('/cms-development');
-    expect(deep.status).toBe(200);
+    expect(deep.status).toBe(503);
     expect(deep.text).toContain('id="root"');
+
+    const admin = await request(app).get('/admin/leads');
+    expect(admin.status).toBe(200);
+    expect(admin.headers['x-robots-tag']).toBe('noindex');
 
     const asset = await request(app).get('/assets/app-abc123.js');
     expect(asset.status).toBe(200);

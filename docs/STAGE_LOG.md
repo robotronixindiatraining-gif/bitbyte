@@ -202,3 +202,36 @@ Shared content and auth schemas → 15 Mongoose models + `publishable` plugin �
 
 ### 6. Not done (by scope)
 Public website, CMS write endpoints beyond the services/admin/audit routes listed, media uploads, leads, the Resend driver, the admin UI and production provisioning.
+
+## Stage 05: CMS APIs, media, leads and SEO (2026-10-15)
+
+### 1. Inspection before changes
+| Check | Result |
+|---|---|
+| Branch / status | `claude/amazing-sagan-mwrdn8`, clean, in sync with origin (`069bb2d`); Stage 04 CI green |
+| Docs read | `API_REFERENCE.md` §3 and §5 (the endpoint contract), `DATABASE_SCHEMA.md`, `ARCHITECTURE.md`, `ROUTE_MAP.md`, `DECISIONS.md` |
+| Third-party services | No Cloudinary, Resend or Turnstile credentials were supplied. Cloudflare's `siteverify` host is not reachable from this environment. Every provider is therefore exercised through mocks; nothing was sent to a real third-party account. |
+
+### 2. Dependencies (compatibility checked against Node 22.22 and the existing lockfile before installing)
+sanitize-html 2.18.1, multer 2.4.0, file-type 22.2.0, sharp 0.35.5 (prebuilt libvips; loads on this host), cloudinary 2.11.0 (server); @vitest/coverage-v8 5.0.5 (dev, same version as vitest). `npm audit --omit=dev`: 0 vulnerabilities.
+
+### 3. Implementation (see `ARCHITECTURE.md` §4 and §12; decisions D-049–D-058)
+Shared schema factory with an injectable rich-text sanitiser → content kinds registry + content service (draft/publish/revisions/orderings/consent/delete, slug-change redirects) → resolver for public and preview views → public content service (+ cache) → taxonomy, redirect, preview and dashboard services → media pipeline (verification, sharp, local/Cloudinary/disabled storage) → leads (Turnstile, honeypot, retention dates, notifications with retries via the replaceable mailer incl. a Resend driver) → retention service, scheduler and CLI → admin route modules (97 routes) and public routes → SEO site router (HTML shell, JSON-LD, robots, sitemap, normalisation, redirects, canonical host) → tests → documentation.
+
+### 4. Issues found and fixed
+| Issue | Fix |
+|---|---|
+| Section data validated in `superRefine` discarded the sanitised output | Section envelope now uses a `transform` that keeps the parsed data (test added) |
+| `$pull` on `published.ids` failed while an ordering had never been published (`published: null`) | Each list is updated only where it exists (`removeFromAllOrderings`) |
+| `new URL('//evil.example/')` reads the path as a host, so normalisation skipped it | Paths are split by hand; tests cover `//host` and `///host//x` |
+| The HTML route waited on MongoDB queries while the database was down (10 s) | It now answers 503 immediately when the connector is not up |
+| Production config tests failed once `local` media was refused in production | Production defaults to a `disabled` media driver (uploads 503) instead of failing to boot (D-049) |
+| Literal U+2028/U+2029/U+FEFF characters ended up in two source files from a heredoc | Replaced with escapes; all sources scanned for invisible characters |
+| Local storage `remove()` hid the "invalid key" error behind a generic one | Key validated before the file operation |
+| `pkill -f` during the manual run matched its own shell again (exit 144) | Processes stopped by PID; no project impact |
+
+### 5. Verification
+`npm run check` (with `MONGOMS_SYSTEM_BINARY`): no-TS ✅ · lint ✅ · format ✅ · tests 308/308 ✅ (shared 23 · server 278 · client 7) · build ✅ (110.4 KB gzip) · smoke 14/14 ✅. Coverage (`npm run test:coverage -w server`): lines ≈ 89 % services, ≈ 85 % controllers. Manual end-to-end run on a throwaway MongoDB 8.0.34 (`bitbyte_e2e`, temporary data directory deleted afterwards): 27/27 checks, from first sign-in with 2FA enrolment through settings, media upload, publishing, public API/HTML/sitemap/robots, lead submission (stored as `unverified` because Cloudflare was unreachable), CSV export, dashboard and erasure; the server log contained no personal data. The retention CLI ran in dry-run mode only. Details are in `PROGRESS.md`.
+
+### 6. Not done (by scope or by missing input)
+Visual design system and public pages (Stages 06–07), admin UI (Stage 08), verification against real Cloudinary/Resend/Turnstile accounts (credentials pending), legacy-form field verification (fields provisional), production provisioning.

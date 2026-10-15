@@ -73,6 +73,56 @@ describe('loadConfig', () => {
     expect(config.logLevel).toBe('info');
   });
 
+  it('configures media, mail, Turnstile, jobs and SEO switches for Stage 05', () => {
+    const dev = loadConfig({});
+    expect(dev.media.driver).toBe('local');
+    expect(dev.mail).toMatchObject({ driver: 'log', resendApiKey: null, leadRecipients: [] });
+    expect(dev.turnstile).toEqual({ secretKey: null, allowedHostnames: [] });
+    expect(dev.canonicalHost).toBeNull();
+    expect(dev.robotsAllowIndexing).toBe(false);
+    expect(loadConfig({ NODE_ENV: 'test' }).jobsEnabled).toBe(false);
+
+    expect(() => loadConfig({ MAIL_DRIVER: 'resend' })).toThrow(/RESEND_API_KEY: Required/);
+    expect(() => loadConfig({ MEDIA_DRIVER: 'cloudinary' })).toThrow(/CLOUDINARY_URL: Required/);
+    expect(() => loadConfig({ CLOUDINARY_URL: 'https://key:secret@x' })).toThrow(/CLOUDINARY_URL/);
+    expect(() => loadConfig({ LEAD_NOTIFICATION_EMAILS: 'ok@example.com, nope' })).toThrow(
+      /LEAD_NOTIFICATION_EMAILS/,
+    );
+    expect(() => loadConfig({ CANONICAL_HOST: 'https://www.example.com/' })).toThrow(
+      /CANONICAL_HOST/,
+    );
+
+    const production = {
+      NODE_ENV: 'production',
+      MONGODB_URI: 'mongodb+srv://cluster.example.net/bitbyte',
+      PUBLIC_SITE_URL: 'https://www.example.com',
+      ...PRODUCTION_SECRETS,
+    };
+    // Production never uses local disk for media; without Cloudinary, uploads are disabled.
+    expect(loadConfig(production).media.driver).toBe('disabled');
+    expect(() => loadConfig({ ...production, MEDIA_DRIVER: 'local' })).toThrow(/development only/);
+    expect(loadConfig(production).robotsAllowIndexing).toBe(false);
+    const live = loadConfig({
+      ...production,
+      MEDIA_DRIVER: 'cloudinary',
+      CLOUDINARY_URL: 'cloudinary://key:secret@demo-cloud',
+      MAIL_DRIVER: 'resend',
+      RESEND_API_KEY: 're_placeholder_key',
+      MAIL_FROM: 'Website <noreply@example.com>',
+      TURNSTILE_SECRET_KEY: 'placeholder-turnstile-secret',
+      TURNSTILE_ALLOWED_HOSTNAMES: 'www.example.com, Example.com',
+      LEAD_NOTIFICATION_EMAILS: 'Sales@Example.com',
+      ROBOTS_ALLOW_INDEXING: 'true',
+      CANONICAL_HOST: 'WWW.example.com',
+    });
+    expect(live.media.driver).toBe('cloudinary');
+    expect(live.turnstile.allowedHostnames).toEqual(['www.example.com', 'example.com']);
+    expect(live.mail.leadRecipients).toEqual(['sales@example.com']);
+    expect(live.robotsAllowIndexing).toBe(true);
+    expect(live.canonicalHost).toBe('www.example.com');
+    expect(live.jobsEnabled).toBe(true);
+  });
+
   it('builds the origin allowlist and cookie settings for development', () => {
     const config = loadConfig({
       ALLOWED_ORIGINS: 'https://staging.example.com, http://localhost:3000/',

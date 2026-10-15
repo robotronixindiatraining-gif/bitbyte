@@ -92,7 +92,10 @@ async function main() {
 
     const home = await fetch(`${baseUrl}/`);
     const html = await home.text();
-    assert(home.status === 200 && html.includes('id="root"'), 'server serves the built client');
+    assert(
+      home.status === 503 && html.includes('id="root"') && html.includes('noindex'),
+      'server serves the built client shell (503 + noindex while the database is down)',
+    );
     assert(
       (home.headers.get('content-security-policy') ?? '').includes("default-src 'self'"),
       'security headers are present',
@@ -103,7 +106,25 @@ async function main() {
     );
 
     const deepLink = await fetch(`${baseUrl}/internet-of-things`);
-    assert(deepLink.status === 200, 'client-side routes fall back to the app shell');
+    const deepHtml = await deepLink.text();
+    assert(deepHtml.includes('id="root"'), 'content routes are served by the app shell');
+
+    const robots = await (await fetch(`${baseUrl}/robots.txt`)).text();
+    assert(
+      robots.includes('Disallow: /\n'),
+      'robots.txt blocks indexing until ROBOTS_ALLOW_INDEXING is enabled',
+    );
+
+    const lead = await fetch(`${baseUrl}/api/v1/public/leads`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://evil.example',
+        'X-Requested-With': 'fetch',
+      },
+      body: '{}',
+    });
+    assert(lead.status === 403, 'lead submissions from other origins are rejected');
 
     const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
       method: 'POST',

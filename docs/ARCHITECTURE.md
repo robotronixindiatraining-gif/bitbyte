@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Approved in Stage 02 with refinements (D-018–D-041). Stage 03 built the foundation; **Stage 04 added the database layer, admin security, CLI and seed**. §12 lists what exists today. |
+| **Status** | Approved in Stage 02 with refinements (D-018–D-041). Stage 03 built the foundation; Stage 04 added the database layer, admin security, CLI and seed; **Stage 05 added the CMS, media, lead, retention and SEO APIs** (D-049–D-058). §12 lists what exists today. |
 | **Related** | `DATABASE_SCHEMA.md`, `API_REFERENCE.md`, `DESIGN_SYSTEM.md`, `ADMIN_GUIDE.md`, `ROUTE_MAP.md`, `DECISIONS.md` |
 | **Constraints** | MongoDB, Express, React, Node.js, Tailwind CSS. **JavaScript only, no TypeScript anywhere.** One administrative role (`super_admin`); public visitors are anonymous. |
 
@@ -115,42 +115,38 @@ The full public route list with legacy redirects is in `ROUTE_MAP.md`.
 
 ## 4. Server (`server/`)
 
-### 4.1 Structure
+### 4.1 Structure (as implemented after Stage 05)
 ```
 server/src/
-├─ server.js            load config → connect DB → listen → graceful shutdown (SIGTERM)
-├─ app.js               createApp({ config, logger }) — pure factory used by tests
-├─ config/
-│  ├─ env.js            zod-validated process.env; fails fast with a clear message
-│  ├─ db.js             mongoose connection, sanitizeFilter, strictQuery
-│  └─ logger.js         pino with redaction
+├─ server.js            load config → start DB connector → listen → start jobs → graceful shutdown
+├─ app.js               createApp({ config, logger, db, overrides }) — pure factory used by tests
+├─ container.js         wires services once; tests override providers (mail, storage, Turnstile, fetch)
+├─ config/              env.js (zod-validated env), db.js (connector, sanitizeFilter), logger.js, envFile.js
+├─ content/             kinds.js (publishable kinds registry), schemas.js (shared schemas + sanitiser),
+│                       sanitize.js (rich-text allowlist, sanitize-html)
 ├─ routes/
-│  ├─ index.js          mounts /api/v1/{public,auth,admin}, health, 404 for unknown /api
-│  ├─ public/*.routes.js
+│  ├─ index.js          /api/v1: lead route (own 16 KB parser) → JSON parser → health → /public → /auth, /admin
+│  ├─ public/index.js   published-only reads + POST /public/leads
 │  ├─ auth.routes.js
-│  └─ admin/*.routes.js (router-level requireSuperAdmin)
+│  └─ admin/            declarative route table: index.js (+ upload, step-up, cache clearing),
+│                       contentRoutes.js, resourceRoutes.js, schemas.js
 ├─ controllers/         parse req → call service → shape response (no DB access)
-├─ services/            business rules: publishing, revisions, references, media, leads,
-│                       mail, auth/sessions, audit, redirects, seo, placeholders
-├─ models/              Mongoose schemas (one file per collection)
-├─ validators/          request schemas (compose shared/ schemas: body, params, query)
-├─ middleware/
-│  ├─ requestId.js      X-Request-Id in/out, attached to logs
-│  ├─ securityHeaders.js helmet with CSP
-│  ├─ originCheck.js    blocks cross-site state-changing requests
-│  ├─ session.js        reads cookie → loads session + user (req.admin) or nothing
-│  ├─ requireSuperAdmin.js 401/403 enforcement
-│  ├─ validate.js       validate(schema) for body/params/query → 422 on failure
-│  ├─ rateLimits.js     named limiters (login, leads, uploads, admin, public)
-│  ├─ upload.js         multer memory storage with limits
-│  ├─ redirects.js      legacy/slug redirects before the SPA fallback
-│  ├─ notFound.js
-│  └─ errorHandler.js   AppError → JSON envelope; unknown → 500, no stack in production
-├─ storage/             media adapters: local.js (dev), <provider>.js (prod) — same interface
-├─ seo/                 renderShell.js (meta + bootstrap JSON injection), sitemap.js, robots.js
-├─ cli/                 create-admin.js, reset-admin-password.js, seed.js (idempotent; never drops)
-└─ utils/               AppError, pick, slugify, pagination, html sanitiser config
-server/tests/           integration (supertest + in-memory MongoDB) and unit tests
+├─ services/            contentService (draft/publish/revisions/orderings), resolver (public + preview views),
+│                       publicContentService (+ cache), previewService, taxonomyService, redirectService,
+│                       mediaService, leadService, leadNotifications, turnstile, mailer, retentionService,
+│                       dashboardService, auth/session/admin/audit services, securityNotifications
+├─ media/               processImage.js (magic bytes, limits, sharp re-encode), storage.js (local | cloudinary | disabled)
+├─ seo/                 siteRoutes.js (robots, sitemap, uploads, static, HTML shell, normalisation, canonical host),
+│                       html.js (renderShell, escaping), structuredData.js (JSON-LD)
+├─ jobs/                scheduler.js (retention purge, notification retries; single instance)
+├─ middleware/          requestId, securityHeaders, originCheck, auth (session, requireSuperAdmin, step-up),
+│                       validate, rateLimits, errorHandler
+├─ models/              Mongoose schemas (one file per collection) + publishable plugin
+├─ security/            crypto, passwords (argon2id), totp
+├─ seed/                idempotent placeholder seed
+├─ cli/                 admin-*, seed, secrets-generate, retention-run
+└─ utils/               AppError
+server/test/            integration (supertest + in-memory MongoDB) and unit tests; providers are mocked
 ```
 
 ### 4.2 Layering rules
@@ -161,39 +157,34 @@ server/tests/           integration (supertest + in-memory MongoDB) and unit tes
 - Express 5 forwards rejected promises to `errorHandler`, so no async wrapper is needed.
 - Services throw `AppError(status, code, message, details)`. Nothing else is serialised to clients.
 
-### 4.3 Request pipeline order (app.js)
+### 4.3 Request pipeline order (app.js, as implemented)
 1. `trust proxy` (exact hop count from config), `x-powered-by` disabled
-2. `requestId`, `pino-http` logging
-3. `securityHeaders` (helmet + CSP)
-4. Compression (only if the host/proxy doesn't compress)
-5. `express.json({ limit: '200kb' })` for API routes; multer only on upload routes
-6. `cookie-parser`
-7. `/api/v1/health`
-8. `/api/v1/public`: public limiter, cache headers
-9. `/api/v1/auth`: origin check, session, login limiter on `POST /login`
-10. `/api/v1/admin`: origin check, session, `requireSuperAdmin`, admin limiter
-11. Unknown `/api/*` → 404 JSON
-12. `GET /sitemap.xml`, `GET /robots.txt`
-13. `redirects` middleware (301/302 from the `redirects` collection, cached in memory, refreshed on change)
-14. Static assets from `client/dist` (hashed files: `Cache-Control: public, max-age=31536000, immutable`)
-15. SPA fallback: `renderShell` (HTML with injected meta + bootstrap JSON; `no-cache`; status 404 for unknown slugs)
-16. `errorHandler`
+2. `requestId`, `pino-http` logging (method, URL and status only)
+3. `securityHeaders` (helmet + CSP; images from self, `data:` and Cloudinary; Turnstile script/frame)
+4. `canonicalHost` (no-op while `CANONICAL_HOST` is unset, D-028)
+5. `/api/v1` (every response `X-Robots-Tag: noindex`):
+   1. `POST /public/leads`: public limiter → origin check → lead limiters (5/h, 20/day) → `express.json({ limit: '16kb' })` → validation
+   2. `express.json({ limit: '200kb' })`, health
+   3. `/public`: public limiter, cache headers, validation, published-only services
+   4. `/auth` and `/admin`: origin check (multipart allowed only for `POST /admin/media`) → cookies → session → `no-store`; `/admin` adds `requireSuperAdmin`, the admin limiter and public-cache clearing on writes; per route: step-up, upload limiter + multer (memory, 10 MB, one file), validation
+   5. Unknown `/api/*` → 404 JSON
+6. `normalisePaths`: 301 to lower case without trailing or repeated slashes (never to `//host`)
+7. `siteRouter`: `robots.txt`, `sitemap.xml`, `/uploads` (local driver only), static `client/dist` (hashed assets immutable), then the HTML shell for every other GET (real 200/301/302/404/503)
+8. `notFound` → `errorHandler`
 
-## 5. API design summary
-Full contract in `API_REFERENCE.md`.
-- **Versioning:** URL prefix `/api/v1`. A breaking change gets `/api/v2`, with v1 kept until the client migrates. Additive changes stay in v1.
-- **Envelope:** success `{ "data": …, "meta": {…} }`, error `{ "error": { "code", "message", "details", "requestId" } }`.
 - **Visibility:** `/public/*` returns only `published` content, with draft fields stripped by projection, not by filtering in code. `/admin/*` returns drafts.
 - **Validation:** zod in strict mode (unknown keys rejected) on body, params and query. 422 with field paths.
 - **Concurrency:** every draft write carries the `revision` the editor loaded; a mismatch returns 409 `EDIT_CONFLICT`.
 
-## 6. Rendering & SEO (D-007)
-- The client is a single-page app. For **every non-API GET**, `seo/renderShell.js`:
-  1. Resolves the URL to a published entity (page / service / project / job), or a 404.
-  2. Injects `<title>`, meta description, canonical, robots, Open Graph/Twitter tags and JSON-LD into the built `index.html` template (cached in memory).
-  3. Embeds **bootstrap data** (site settings + that route's published payload) as `<script type="application/json" id="bb-bootstrap">`, escaped so it can't break out of the script tag. This removes the first API round-trip and speeds up LCP.
-  4. Returns 404 status for unknown slugs, so crawlers don't index soft-404s.
-- `sitemap.xml` lists published pages, services, projects and open jobs with `lastmod`. `robots.txt` disallows `/admin` and `/api` and points to the sitemap.
+## 6. Rendering & SEO (D-007; implemented in Stage 05)
+- The client is a single-page app. For **every non-API GET** that is not a file, `server/src/seo/siteRoutes.js`:
+  1. Answers `503` (+ `Retry-After`, `noindex`) with the plain shell if MongoDB is not connected.
+  2. Resolves the URL (`publicContent.resolvePath`): service or page at the top level, `/portfolio/:slug`, `/careers/:slug`, then stored redirects (301/302, hit counter). Unknown or unpublished → **404** with `noindex`.
+  3. Injects `<title>` (settings `titleTemplate`), description, canonical, robots, Open Graph/Twitter tags and JSON-LD (Organization on the homepage, Service, JobPosting; only from published values) into the built `index.html` (read once at start-up). Every value is HTML-escaped.
+  4. Embeds **bootstrap data** (site bundle + that route's published payload) as `<script type="application/json" id="bitbyte-bootstrap">`, escaped so it can't break out of the script tag. Stage 07 uses it to skip the first API round-trip.
+- `/admin/*` HTML is always `noindex` and `no-store`. Outside production, or until `ROBOTS_ALLOW_INDEXING=true`, every page is `noindex, nofollow` and `robots.txt` disallows everything (D-050).
+- `sitemap.xml` lists published, indexable pages, services, projects and open jobs with `lastmod`. With indexing allowed, `robots.txt` disallows `/admin` and `/api` and points to the sitemap.
+- URL normalisation (lower case, no trailing slash, no repeated slashes) is a 301 in code; the canonical-host redirect exists but is disabled until the domain is verified (D-028).
 - Upgrade path: React Router framework-mode SSR if search performance requires it (components are written SSR-safe).
 
 ## 7. Security boundaries & data flow
@@ -210,12 +201,13 @@ There is **no public registration, login or account system**. The only login for
 ### 7.2 Key flows
 - **Login (D-039):** `POST /auth/login` → login limiter → origin check → zod → find admin by e-mail → argon2id verify (dummy hash when the admin doesn't exist, keeping timing constant) → lockout checks → **`mfa_pending` session** (5 min, single use; or a restricted `enrollment` session if 2FA isn't set up yet) → `POST /auth/login/verify` with TOTP or recovery code → cookie rotated to a full `active` session → audit `auth.login`. **A password alone never produces a full session.**
 - **Admin write:** cookie → session lookup (by token hash, not expired, user active) → idle-timeout refresh → `requireSuperAdmin` → validate → service (revision check, sanitise, compute references, placeholder scan) → save → audit → respond.
-- **Publish:** service validates the full draft with the strict "publishable" schema → refuses if `[CONFIRM …]` placeholders remain or referenced media/entities aren't published → copies `draft` → `published` → writes a `revisions` snapshot → audit → invalidates public cache → `published` changes go live.
-- **Lead submission:** public limiter → honeypot + minimum fill-time check → **server-side Turnstile `siteverify` (required, D-020)** → zod → sanitise → store `leads` → queue notification e-mail (failure is logged, never lost) → generic success response.
-- **Media upload:** upload limiter → multer (size cap, single file) → magic-byte check → `sharp` re-encode + variants + EXIF strip → storage adapter → `media` document → audit.
+- **Publish:** revision check → strict "publishable" schema → refuses if `[CONFIRM …]` placeholders remain, consent/permission is missing, page template rules fail, or referenced media/entities aren't live → slug check → fail-closed audit entry → atomic copy `draft` → `published` → `revisions` snapshot (25 kept) → slug-change redirects → public cache cleared.
+- **Lead submission:** public limiter → origin check + `X-Requested-With` → lead limiters → 16 KB JSON → strict zod (normalised) → form settings + Turnstile configured? (else 503) → honeypot (silent spam) → budget allowlist → **server-side Turnstile `siteverify`** (fail → 422; outage → stored as unverified) → store `leads` with consent text and `expiresAt` → background notification (retried; never affects the response) → generic success response. Logs carry the lead id and outcome only.
+- **Media upload:** upload limiter → multer (memory, 10 MB, one file) → magic bytes + decoder agreement → dimension limits → `sharp` rotate/resize/re-encode (EXIF and payloads dropped) → duplicate check → fail-closed audit → storage adapter → `media` metadata (stored file deleted again if this fails).
+- **Retention:** scheduler (daily) → delete leads past `expiresAt` in batches → one audit entry with counts.
 
 ### 7.3 Controls (summary; details in `API_REFERENCE.md` §2)
-argon2id hashing · opaque server-side sessions (HttpOnly, Secure, SameSite=Strict) · idle + absolute expiry · lockout · origin check on state-changing requests · strict validation, mass-assignment protection · Mongoose `sanitizeFilter` · server-side HTML sanitisation · CSP and security headers · upload re-encoding, no SVG uploads · rate limits · audit log · secrets only in environment · least-privilege DB user · no stack traces in responses · log redaction.
+argon2id hashing · opaque server-side sessions (HttpOnly, Secure, SameSite=Strict) · idle + absolute expiry · lockout · origin check on state-changing requests (incl. the public lead form) · strict validation, mass-assignment protection · Mongoose `sanitizeFilter` · server-side HTML sanitisation (allowlist) · unsafe-link rejection · CSP and security headers · upload verification and re-encoding, no SVG uploads · server-side Turnstile · rate limits · fail-closed audit log without lead PII · secrets only in environment (Cloudinary, Resend and Turnstile secrets never reach the browser) · least-privilege DB user · no stack traces in responses · log redaction · published-only public projections.
 
 ## 8. Configuration
 
@@ -231,14 +223,17 @@ All configuration comes from environment variables, validated at boot by `server
 | `SESSION_COOKIE_NAME` | `__Host-bb_sid` (prod), `bb_sid` (dev) | |
 | `SESSION_IDLE_MINUTES` / `SESSION_ABSOLUTE_HOURS` | `120` / `12` | |
 | `ALLOWED_ORIGINS` | `https://www.bitbyteindia.com` | Comma-separated; dev adds `http://localhost:5173` |
-| `MEDIA_DRIVER` | `cloudinary` (prod) / `local` (dev) | D-018 |
+| `MEDIA_DRIVER` | `cloudinary` (prod) / `local` (dev) | D-018; production refuses `local`, and without `cloudinary` uploads answer 503 |
 | `MEDIA_LOCAL_DIR` | `./uploads` | Dev only; git-ignored |
 | `CLOUDINARY_URL` | `cloudinary://<key>:<secret>@<cloud>` | **Secret.** Server only (D-018) |
 | `MAIL_DRIVER` | `resend` (prod) / `log` (dev, test) | D-019 |
 | `RESEND_API_KEY` | `re_…` | **Secret** (D-019) |
 | `MAIL_FROM` | `BitByte Website <notifications@…>` | Verified sending domain |
 | `TURNSTILE_SECRET_KEY` | | **Secret** (D-020); Cloudflare test keys in development |
-| `TURNSTILE_ALLOWED_HOSTNAMES` | `www.bitbyteindia.com` | Checked against the siteverify `hostname` |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | `www.bitbyteindia.com` | Checked against the siteverify `hostname`; default: host of `PUBLIC_SITE_URL` |
+| `LEAD_NOTIFICATION_EMAILS` | `sales@…` | Fallback recipients when the published `leadForm` names none |
+| `JOBS_ENABLED` | *(default on, off in tests)* | Retention purge + notification retries in this process; enable on one instance only |
+| `ROBOTS_ALLOW_INDEXING` | `false` | Indexing allowed only in production with `true` (D-050) |
 | `TOTP_ENCRYPTION_KEY` | 32 random bytes, base64 | **Secret.** Encrypts TOTP secrets at rest (D-039) |
 | `RECOVERY_CODE_PEPPER` | random | **Secret.** HMAC key for recovery-code hashes (D-039) |
 | `IP_HASH_SALT` | random | **Secret.** Leads and sessions store a salted IP hash, not raw IPs |
@@ -247,7 +242,7 @@ All configuration comes from environment variables, validated at boot by `server
 | `LOG_LEVEL` / `LOG_PRETTY` | `info` / `false` | Pretty logs only in development |
 | `CLIENT_DIST_DIR` | `../client/dist` | Built client served by Express when present |
 
-Only the variables used by implemented code are validated today (§12). The rest are introduced, with validation, in the stage that needs them. `server/.env.example` lists them all as **placeholders**.
+All variables above are validated since Stage 05 (`ERROR_TRACKING_DSN` excepted: it is reserved). `server/.env.example` lists them as **placeholders**. **Production configuration for Cloudinary, Resend and Turnstile is pending**: no credentials have been supplied or tested; activation steps are in `DEPLOYMENT.md` §4b.
 
 Client build-time variables (`VITE_*`) carry **no secrets**; public keys such as the Turnstile site key are served from site settings.
 
@@ -278,18 +273,21 @@ Client build-time variables (`VITE_*`) carry **no secrets**; public keys such as
 | End-to-end | Playwright (+ axe) | Visitor journeys, lead submission, admin login → edit → preview → publish, keyboard navigation, accessibility per template |
 | Performance | Lighthouse CI | Budgets in `DESIGN_SYSTEM.md` §11 |
 
-## 12. Implementation status (after Stage 04)
+## 12. Implementation status (after Stage 05)
 | Area | Exists now | Arrives in |
 |---|---|---|
 | Workspaces | `client/`, `server/`, `shared/`; root scripts; CI workflow | — |
-| Server core | `createApp` factory, service container (`src/container.js`), zod-validated config, pino logging with redaction, request IDs, helmet CSP, safe error envelopes (DB outages → 503), liveness/readiness health, MongoDB connector (background retry, `ensureIndexes`, `strictQuery`, `sanitizeFilter`, `bufferCommands: false`), SPA hosting, graceful shutdown | Meta injection/sitemap (05/07) |
-| Data | All 15 Mongoose models with indexes; `publishable` plugin (draft/publish validation, derived placeholders and references); content service (create, revision-guarded draft save, publish with all checks, unpublish, revisions, slug-change redirects) | CRUD/preview/ordering endpoints (05) |
-| Admin security | argon2id passwords; server-side sessions (`mfa_pending` → `enrollment`/`active`); mandatory TOTP with replay protection; recovery codes (HMAC, single use); step-up; lockout; rate limits; CSRF origin check; audit log (fail-closed for privileged actions); security notifications via the `log` mailer | Resend driver (05); admin UI (08) |
-| Routes | `/api/v1/health*`, `/api/v1/auth/*`, `/api/v1/admin/administrators*`, `/api/v1/admin/audit-logs`, `/api/v1/public/services*` | The rest of `API_REFERENCE.md` (05) |
-| CLI | `admin:create`, `admin:list`, `admin:reset-password`, `admin:reset-2fa`, `seed`, `secrets:generate` (`server/src/cli/`); production requires `--allow-production` | — |
-| Shared | Error codes, roles, auth input rules (password policy, TOTP and recovery-code formats), zod helpers, content schemas (all entities, settings keys, 15 section types, page-template rules), placeholder scanner, reserved slugs | — |
-| Client | Vite + React 19 + Tailwind v4 tokens (provisional palette), router, query client, API client, foundation page with live API health, 404 | Design system (06), public pages (07), admin (08) |
-| Quality | ESLint 9, Prettier, Vitest; server integration tests on an isolated in-memory MongoDB (`mongodb-memory-server`); no-TypeScript guard; smoke test (now also checks 503-on-DB-down and CSRF rejection) | Playwright + axe (06), Lighthouse CI (07) |
+| Server core | `createApp` factory, service container, zod-validated config, pino logging with redaction, request IDs, helmet CSP, safe error envelopes (DB outages → 503), liveness/readiness health, MongoDB connector, graceful shutdown, in-process job scheduler | — |
+| Data & CMS | All 15 models; draft/publish workflow for pages, services, projects, testimonials, jobs, settings and orderings (revision-guarded saves, strict publish checks, revisions + restore, discard, unpublish, safe delete, consent/permission, slug-change redirects); taxonomies; redirects; preview; dashboard summary | — |
+| Media | Upload verification and sharp normalisation; `local` (dev), `cloudinary` (prod, **credentials pending**) and `disabled` drivers; usage tracking; safe delete | Real Cloudinary verification (10) |
+| Leads | Public submission with Turnstile (**production keys pending**), honeypot, rate limits; admin list/search/status/notes/CSV export/erasure; notification notices via Resend (**credentials pending**) or the `log` driver; retention purge + CLI | Real Resend/Turnstile verification (10) |
+| SEO | HTML shell with per-route metadata, JSON-LD, bootstrap JSON, real 404/503, robots, sitemap, URL normalisation, stored redirects; canonical host (disabled) | Client use of bootstrap data (07) |
+| Admin security | argon2id; server-side sessions (`mfa_pending` → `enrollment`/`active`); mandatory TOTP with replay protection; recovery codes; step-up; lockout; rate limits; CSRF origin check; fail-closed audit | Admin UI (08) |
+| Routes | Everything in `API_REFERENCE.md` (Appendix A lists all 97 admin routes) | — |
+| CLI | `admin:create`, `admin:list`, `admin:reset-password`, `admin:reset-2fa`, `seed`, `secrets:generate`, `retention:run` (dry run by default); production requires `--allow-production` | — |
+| Shared | Error codes, auth input rules, zod helpers, content schema factory (draft/publish, optional sanitiser), section registry and template rules, lead submission schema (provisional fields), placeholder scanner, reserved slugs, `slugify` | — |
+| Client | Vite + React 19 + Tailwind v4 tokens (provisional palette), router, query client, API client, foundation page, 404 | Design system (06), public pages (07), admin (08) |
+| Quality | ESLint, Prettier, Vitest; integration tests on an in-memory MongoDB with mocked providers; API contract test; coverage report (`npm run test:coverage -w server`); no-TypeScript guard; smoke test | Playwright + axe (06), Lighthouse CI (07) |
 
 ### 12.1 Request pipeline additions (Stage 04)
 `/api/v1/auth` and `/api/v1/admin` run, in order: origin check (D-012) → cookie parsing → session resolution (`req.auth = { session, admin }`) → `Cache-Control: no-store` → route guards. `/admin` adds `requireSuperAdmin()` and the admin rate limiter at router level; step-up and validation are attached per route from the declarative route table.

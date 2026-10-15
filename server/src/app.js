@@ -1,13 +1,13 @@
 import express from 'express';
 import { pinoHttp } from 'pino-http';
 import { API_PREFIX } from '@bitbyte/shared';
-import { clientApp } from './clientApp.js';
 import { createServices } from './container.js';
 import { createRateLimiters } from './middleware/rateLimits.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 import { requestId } from './middleware/requestId.js';
 import { securityHeaders } from './middleware/securityHeaders.js';
 import { apiRouter } from './routes/index.js';
+import { canonicalHost, normalisePaths, siteRouter } from './seo/siteRoutes.js';
 
 /**
  * Express application factory. Kept free of side effects (no listen, no DB connect) so tests
@@ -17,7 +17,8 @@ import { apiRouter } from './routes/index.js';
  *   config: ReturnType<typeof import('./config/env.js').loadConfig>,
  *   logger: import('pino').Logger,
  *   db: { getState: () => string },
- *   overrides?: { limits?: object, mailer?: object, audit?: object },
+ *   overrides?: { limits?: object, mailer?: object, audit?: object, mediaStorage?: object,
+ *     turnstile?: object, fetch?: typeof fetch, cloudinaryClient?: object },
  * }} deps
  */
 export function createApp({ config, logger, db, overrides = {} }) {
@@ -42,11 +43,19 @@ export function createApp({ config, logger, db, overrides = {} }) {
     }),
   );
   app.use(securityHeaders(config));
+  app.use(canonicalHost(config.canonicalHost));
 
-  app.use(API_PREFIX, apiRouter({ config, db, services, limiters }));
+  app.use(
+    API_PREFIX,
+    (_req, res, next) => {
+      res.set('X-Robots-Tag', 'noindex');
+      next();
+    },
+    apiRouter({ config, db, services, limiters }),
+  );
 
-  const client = clientApp({ distDir: config.clientDistDir });
-  if (client) app.use(client);
+  app.use(normalisePaths());
+  app.use(siteRouter({ config, services, db }));
 
   app.use(notFound());
   app.use(errorHandler());

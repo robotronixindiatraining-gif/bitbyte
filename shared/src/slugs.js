@@ -5,6 +5,7 @@
 export const RESERVED_SLUGS = Object.freeze([
   'admin',
   'api',
+  'home',
   'services',
   'portfolio',
   'careers',
@@ -25,4 +26,20 @@ export const RESERVED_SLUGS = Object.freeze([
 /** @param {string} slug */
 export function isReservedSlug(slug) {
   return RESERVED_SLUGS.includes(String(slug).toLowerCase());
+}
+
+/**
+ * Suggest a URL slug from a label: lower-case ASCII letters, digits and single hyphens.
+ * @param {string} value
+ */
+export function slugify(value) {
+  return String(value)
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+    .replace(/-+$/, '');
 }

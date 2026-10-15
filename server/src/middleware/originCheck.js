@@ -8,12 +8,12 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * 1. the Origin (or, failing that, Referer) must be an allowed origin;
  * 2. `X-Requested-With: fetch` must be present — a custom header forces a CORS preflight, which
  *    cross-site pages cannot pass because the API sends no CORS headers;
- * 3. request bodies must be JSON.
+ * 3. request bodies must be JSON (`allowMultipart(req)` admits the media upload route only).
  * SameSite=Strict session cookies are the first line of defence; this is the second.
  *
  * @param {{ allowedOrigins: readonly string[] }} options
  */
-export function originCheck({ allowedOrigins }) {
+export function originCheck({ allowedOrigins, allowMultipart = () => false }) {
   const allowed = new Set(allowedOrigins);
   const reject = (message) => new AppError(403, ERROR_CODES.ORIGIN_REJECTED, message);
 
@@ -33,7 +33,11 @@ export function originCheck({ allowedOrigins }) {
     if (req.get('X-Requested-With') !== 'fetch') return next(reject('Missing request header.'));
 
     const hasBody = Number(req.get('Content-Length') ?? 0) > 0 || req.get('Transfer-Encoding');
-    if (hasBody && !req.is('application/json')) {
+    if (
+      hasBody &&
+      !req.is('application/json') &&
+      !(allowMultipart(req) && req.is('multipart/form-data'))
+    ) {
       return next(
         new AppError(415, ERROR_CODES.UNSUPPORTED_MEDIA_TYPE, 'Request body must be JSON.'),
       );

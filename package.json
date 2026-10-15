@@ -29,6 +29,7 @@
     "admin:reset-password": "npm run admin:reset-password -w server --",
     "admin:reset-2fa": "npm run admin:reset-2fa -w server --",
     "seed": "npm run seed -w server --",
+    "retention:run": "npm run retention:run -w server --",
     "secrets:generate": "npm run secrets:generate -w server --"
   },
   "devDependencies": {

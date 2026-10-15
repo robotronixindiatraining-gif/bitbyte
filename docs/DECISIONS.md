@@ -1,6 +1,6 @@
 # Decision Log
 
-Architecture and project decisions, with rationale. **Status:** `Accepted` (confirmed by the owner) · `Proposed` (Stage 02 recommendation awaiting approval) · `Pending` (owner input required) · `Superseded`.
+Architecture and project decisions, with rationale. **Status:** `Accepted` (confirmed by the owner) · `Proposed` (Stage 02 recommendation awaiting approval) · `Pending` (owner input required) · `Implemented … awaiting review` (implementation decisions made within an approved stage scope) · `Superseded`.
 New decisions are appended; superseded ones stay, marked with a pointer to their replacement.
 
 | ID | Decision | Status | Date |
@@ -53,6 +53,16 @@ New decisions are appended; superseded ones stay, marked with a pointer to their
 | D-046 | Seed: explicit identifiers, insert-only, no portfolio projects | Accepted (implemented) | 2026-10-15 |
 | D-047 | Test database: `mongodb-memory-server` pinned to MongoDB 8.0.34 | Accepted (implemented) | 2026-10-15 |
 | D-048 | Security notifications via the `log` mail driver until Stage 05 | Accepted (implemented) | 2026-10-15 |
+| D-049 | Media pipeline rules (verify, re-encode, metadata only; no file replacement; production never uses local disk) | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-050 | Search indexing off unless production + `ROBOTS_ALLOW_INDEXING=true`; admin and API always noindex | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-051 | Contact form availability and Turnstile outcomes (503 until configured; outage → unverified lead) | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-052 | Lead notification e-mail is a notice without personal data; "accepted" ≠ delivered; retries | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-053 | Lead form fields stay provisional; server-side normalisation rules | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-054 | Public read cache cleared on every admin write (single instance) | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-055 | In-process scheduler for retention and notification retries; dry-run CLI | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-056 | Redirect rules: content wins; automatic slug-change redirects never chain | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-057 | Preview and HTML-shell semantics (drafts of non-archived items; real status codes) | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-058 | Step-up for publishing `privacy` and `leadForm` settings | Implemented in Stage 05; awaiting review | 2026-10-15 |
 
 ---
 
@@ -270,6 +280,49 @@ Server integration tests use `mongodb-memory-server` (a real `mongod` in a tempo
 
 ### D-048 Notification e-mails in Stage 04
 Security notifications (resets, recovery-code use, password changes) go through the mail adapter's `log` driver: recorded as "would send" with the subject and recipient count only. The Resend driver (D-019) replaces it in Stage 05 without code changes in the callers.
+
+
+### D-049 Media pipeline rules (Stage 05; refines D-013, D-018)
+- **Verification:** the file type comes from the magic bytes (`file-type`) and must be confirmed by the decoder (`sharp`); the browser's MIME type and file name are ignored. Allowed: JPEG, PNG, WebP, AVIF. SVG, GIF and HEIC are refused (415). Uploads are limited to 10 MB, 12 000 px per side and **40 megapixels** (lowered from the Stage 02 "12 000 × 12 000" because decoding 144 MP needs over 500 MB of memory on a small server).
+- **Normalisation:** auto-rotate, scale to ≤ 4096 px on the longest edge, re-encode in the same format. Re-encoding drops EXIF/GPS and anything appended to the file. The original file is never stored.
+- **Storage:** binaries go to the storage driver; MongoDB holds metadata only. `local` (development/tests, files named `<uuid>.<ext>`, served at `/uploads`) or `cloudinary` (signed server-side `upload_stream` to `bitbyte/<env>/<uuid>`, `overwrite: false`; delivery variants `f_auto,q_auto,c_limit,w_<480…2400>`). Production refuses `local`; production without `MEDIA_DRIVER=cloudinary` runs with uploads **disabled** (503) instead of failing to boot, so the site can be deployed before Cloudinary credentials exist.
+- **Consistency:** upload = verify → audit (fail-closed) → store → insert metadata; if the insert fails, the stored file is deleted again (an orphan is only possible if that deletion also fails, and is then logged by its random key). Delete = refuse while referenced (draft or published) → provider delete (idempotent; "not found" counts as deleted) → metadata delete. A provider failure leaves everything unchanged (503); retrying a half-finished delete completes it.
+- **Duplicates:** the SHA-256 of the original upload identifies repeats (`200` + `duplicateOf`).
+- **No "replace file" endpoint:** replacing an image means uploading a new one and switching references, which keeps published pages and revisions pointing at the exact file they were published with.
+
+### D-050 Search-engine indexing (Stage 05)
+`robots.txt` allows crawling **only** when `NODE_ENV=production` **and** `ROBOTS_ALLOW_INDEXING=true` (then `Disallow: /admin`, `Disallow: /api` and the sitemap). Otherwise it answers `Disallow: /`, and HTML pages carry `noindex, nofollow` plus `X-Robots-Tag: noindex`. This keeps development, staging and the production deployment before launch out of search results; switching it on is a launch-checklist step (`DEPLOYMENT.md` §8). `/admin/*` pages and every `/api` response are always `noindex`. The canonical-host redirect stays disabled (`CANONICAL_HOST` unset) until the domain is verified (D-028).
+
+### D-051 Contact form availability and Turnstile outcomes (Stage 05; refines D-020)
+- The form answers **503** until the `leadForm` settings are published **and** `TURNSTILE_SECRET_KEY` is configured: accepting submissions without bot protection, or without the published consent text, is not allowed.
+- Failed, missing, expired or replayed tokens → `422 CAPTCHA_FAILED`; nothing is stored. Tokens are remembered locally for 10 minutes so a replay fails even before Cloudflare is asked; each verification sends a fresh `idempotency_key` (the new lead's id).
+- Cloudflare unreachable (network, 5xx, `internal-error`) → the lead is **stored** as `unverified` and flagged "Possible spam", so a genuine enquiry is not lost during an outage.
+- Hostname and `action: "lead"` are enforced in production. Outside production they are checked only when Cloudflare returns them, because Cloudflare's documented test keys return placeholder values.
+- Honeypot → `201` with the normal body and stored as spam (30-day retention); submissions faster than 3 s are flagged, not rejected.
+
+### D-052 Lead notification e-mails (Stage 05; refines D-019)
+- The notification is a **notice only**: reference id, time, a "possible spam" hint and the admin link. Names, contact details and messages stay in the database and are not copied to the mail provider.
+- Status `accepted` means the provider (Resend) confirmed it **accepted** the message; it is not a delivery receipt, and the admin never claims more. The `log` driver (development and tests) sends nothing and records `not_sent`.
+- Sending happens after the lead is stored and never affects the response. Temporary failures (network, 429, 5xx) are retried with back-off (1 min, 5 min, 30 min, 2 h, 6 h) by the scheduler; permanent failures (other 4xx) are marked `failed` and shown on the dashboard. Retries reuse an `Idempotency-Key`, and an atomic lease prevents two workers sending the same notice.
+- Recipients: the published `leadForm.notificationEmails`, else `LEAD_NOTIFICATION_EMAILS`. Publishing `leadForm` requires step-up (D-058).
+
+### D-053 Lead form fields (Stage 05)
+The submission schema (`shared/src/leads.js`) mirrors the indexed contact form (inventory P13a) and is **provisional** until the original form is verified (CG-20). Server-side normalisation: trimmed text with collapsed whitespace, control characters rejected, e-mail lower-cased, CRLF → LF in messages, strict schema (unknown fields → 422), body ≤ 16 KB, `budget` restricted to the published options, `service` linked only if it is a published service.
+
+### D-054 Public read cache (Stage 05)
+Public reads are cached in memory (60 s TTL, ≤ 500 entries). Every admin write clears the cache before and after it runs, and every publish clears it again, so unpublishing or withdrawing consent takes effect immediately. This is correct for one server process; with several instances the TTL bounds staleness and a shared invalidation (e.g. a MongoDB change stream) would be needed (DEPLOYMENT.md §1 already assumes one instance).
+
+### D-055 Scheduled jobs and retention runs (Stage 05; implements D-032)
+An in-process scheduler (`server/src/jobs/scheduler.js`) runs the retention purge one minute after start and every 24 h, and notification retries every 5 minutes. Jobs never overlap, errors are logged, timers do not keep the process alive. It starts only from `server.js` when `JOBS_ENABLED` is not `false` (off in tests); with several instances it must run on one only. `npm run retention:run` performs the same purge manually and is a **dry run unless `--apply`** is given. Publishing new privacy settings recomputes every lead's `expiresAt`. The purge deletes in batches, only what has expired, and is safe to re-run; one audit entry records counts only.
+
+### D-056 Redirect rules (Stage 05; refines D-038)
+Content always wins: a manual redirect cannot be created for a path that a page, service, project or job uses, and a slug cannot be taken while a manual or legacy redirect uses it. Automatic `slug-change` redirects give way: publishing an item at an old address deletes the automatic redirect there. When an item moves, existing redirects to its old address are re-pointed to the new one, so chains never form. Redirect targets are site paths or `https://` URLs; reserved paths (`/`, `/api`, `/admin`, `/uploads`, `/assets`, `sitemap.xml`, `robots.txt`) cannot be redirected.
+
+### D-057 Preview and HTML-shell semantics (Stage 05)
+Preview shows drafts of every non-archived item (draft order, D-037), but still hides unconsented testimonials, projects without permission and closed jobs, because those could not be published either. The HTML shell answers with real status codes (200/301/302/404/503); when MongoDB is unavailable it serves the app shell with `503`, `Retry-After: 60` and `noindex` rather than an empty 200. All metadata comes from published CMS values; JSON-LD is emitted only from those values (Organization on the homepage, Service, JobPosting).
+
+### D-058 Step-up for personal-data settings (Stage 05)
+Publishing the `privacy` settings (retention periods) or the `leadForm` settings (notification recipients) requires a step-up within the last 5 minutes, like lead export and erasure. Editing their drafts does not.
 
 ---
 

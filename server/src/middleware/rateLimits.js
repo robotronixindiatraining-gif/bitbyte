@@ -9,6 +9,9 @@ export const DEFAULT_LIMITS = Object.freeze({
   mfaPerIp: { windowMs: 15 * 60_000, limit: 30 },
   admin: { windowMs: 5 * 60_000, limit: 600 },
   public: { windowMs: 60_000, limit: 120 },
+  uploads: { windowMs: 10 * 60_000, limit: 30 },
+  leadsPerHour: { windowMs: 60 * 60_000, limit: 5 },
+  leadsPerDay: { windowMs: 24 * 60 * 60_000, limit: 20 },
 });
 
 function limiter({ windowMs, limit }, keyGenerator) {
@@ -49,5 +52,10 @@ export function createRateLimiters(overrides = {}) {
       req.auth ? `session:${req.auth.session._id}` : ipKey(req),
     ),
     public: limiter(limits.public, ipKey),
+    uploads: limiter(limits.uploads, (req) =>
+      req.auth ? `session:${req.auth.session._id}` : ipKey(req),
+    ),
+    leadsPerHour: limiter(limits.leadsPerHour, ipKey),
+    leadsPerDay: limiter(limits.leadsPerDay, ipKey),
   };
 }

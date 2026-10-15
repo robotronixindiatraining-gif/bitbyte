@@ -14,6 +14,7 @@ export class ConfigError extends Error {
   }
 }
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const booleanString = z.enum(['true', 'false']).transform((value) => value === 'true');
 
 const envSchema = z
@@ -49,9 +50,53 @@ const envSchema = z
       .optional(),
     RECOVERY_CODE_PEPPER: z.string().min(32, 'Must be at least 32 characters').optional(),
     IP_HASH_SALT: z.string().min(16, 'Must be at least 16 characters').optional(),
-    MAIL_DRIVER: z.enum(['log']).default('log'),
+    MAIL_DRIVER: z.enum(['log', 'resend']).default('log'),
+    RESEND_API_KEY: z.string().min(10).optional(),
+    MAIL_FROM: z.string().min(3).max(200).optional(),
+    LEAD_NOTIFICATION_EMAILS: z
+      .string()
+      .refine(
+        (v) => v.split(',').every((item) => EMAIL.test(item.trim())),
+        'Comma-separated e-mail addresses',
+      )
+      .optional(),
+    MEDIA_DRIVER: z.enum(['local', 'cloudinary']).optional(),
+    MEDIA_LOCAL_DIR: z.string().min(1).optional(),
+    CLOUDINARY_URL: z
+      .string()
+      .regex(
+        /^cloudinary:\/\/[^:]+:[^@]+@[a-z0-9_-]+$/i,
+        'Expected cloudinary://<key>:<secret>@<cloud>',
+      )
+      .optional(),
+    TURNSTILE_SECRET_KEY: z.string().min(10).optional(),
+    TURNSTILE_ALLOWED_HOSTNAMES: z.string().optional(),
+    JOBS_ENABLED: booleanString.optional(),
+    ROBOTS_ALLOW_INDEXING: booleanString.optional(),
+    CANONICAL_HOST: z
+      .string()
+      .regex(/^[a-z0-9.-]+(:\d+)?$/i, 'A host name such as www.example.com')
+      .optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.MAIL_DRIVER === 'resend') {
+      for (const name of ['RESEND_API_KEY', 'MAIL_FROM']) {
+        if (!env[name]) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [name],
+            message: 'Required for MAIL_DRIVER=resend',
+          });
+        }
+      }
+    }
+    if (env.MEDIA_DRIVER === 'cloudinary' && !env.CLOUDINARY_URL) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CLOUDINARY_URL'],
+        message: 'Required for cloudinary',
+      });
+    }
     if (env.NODE_ENV !== 'production') return;
     if (!env.PUBLIC_SITE_URL) {
       ctx.addIssue({
@@ -78,6 +123,13 @@ const envSchema = z
         });
       }
     }
+    if (env.MEDIA_DRIVER === 'local') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['MEDIA_DRIVER'],
+        message: 'The local media driver is for development only; use cloudinary',
+      });
+    }
     if (env.LOG_PRETTY === true) {
       ctx.addIssue({
         code: 'custom',
@@ -100,6 +152,13 @@ function parseOrigins(list, issues) {
         return null;
       }
     })
+    .filter(Boolean);
+}
+
+function parseEmails(list) {
+  return (list ?? '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
 }
 
@@ -163,6 +222,32 @@ export function loadConfig(source = process.env) {
       recoveryCodePepper: env.RECOVERY_CODE_PEPPER ?? null,
       ipHashSalt: env.IP_HASH_SALT ?? null,
     }),
-    mailDriver: env.MAIL_DRIVER,
+    mail: Object.freeze({
+      driver: env.MAIL_DRIVER,
+      resendApiKey: env.RESEND_API_KEY ?? null,
+      from: env.MAIL_FROM ?? null,
+      leadRecipients: Object.freeze(parseEmails(env.LEAD_NOTIFICATION_EMAILS)),
+    }),
+    media: Object.freeze({
+      // Production without a configured driver: uploads answer 503 until Cloudinary is set up.
+      driver: env.MEDIA_DRIVER ?? (isProduction ? 'disabled' : 'local'),
+      localDir: path.resolve(serverRoot, env.MEDIA_LOCAL_DIR ?? './uploads'),
+      cloudinaryUrl: env.CLOUDINARY_URL ?? null,
+    }),
+    turnstile: Object.freeze({
+      secretKey: env.TURNSTILE_SECRET_KEY ?? null,
+      allowedHostnames: Object.freeze(
+        (env.TURNSTILE_ALLOWED_HOSTNAMES ?? '')
+          .split(',')
+          .map((h) => h.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    }),
+    // Background jobs (retention purge, notification retries) run in the server process only.
+    jobsEnabled: env.JOBS_ENABLED ?? env.NODE_ENV !== 'test',
+    // Search engines may index only the production site, and only when explicitly allowed.
+    robotsAllowIndexing: isProduction && (env.ROBOTS_ALLOW_INDEXING ?? false),
+    // D-028: disabled until the domain configuration is verified (Stage 10).
+    canonicalHost: env.CANONICAL_HOST?.toLowerCase() ?? null,
   });
 }

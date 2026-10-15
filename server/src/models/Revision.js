@@ -21,9 +21,12 @@ const revisionSchema = new Schema(
     publishedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
     publishedAt: { type: Date, default: () => new Date() },
     note: { type: String, maxlength: 200, default: '' },
+    /** Media referenced by this snapshot: media in recent revisions cannot be deleted (restore safety). */
+    mediaRefs: { type: [{ type: Schema.Types.ObjectId, ref: 'Media' }], default: [] },
   },
   { versionKey: false },
 );
 revisionSchema.index({ entityType: 1, entityId: 1, publishedAt: -1 });
+revisionSchema.index({ mediaRefs: 1, publishedAt: -1 });
 
 export const Revision = mongoose.models.Revision ?? mongoose.model('Revision', revisionSchema);

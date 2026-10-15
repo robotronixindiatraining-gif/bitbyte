@@ -8,8 +8,8 @@ Status of every stage. Updated at the end of each working session and each stage
 | 01 | Content extraction & asset inventory | 🟡 **Partially complete.** Approved as a partial deliverable by the owner. The original website was **not** accessed directly and all extracted content is **unverified**. Remaining verification continues as parallel track V (`PROJECT_PLAN.md` §4). | 2026-10-15 |
 | 02 | Architecture & design specification | ✅ Approved with required refinements (incorporated: D-018 – D-039) | 2026-10-15 |
 | 03 | Project foundation | ✅ Approved | 2026-10-15 |
-| 04 | Database & admin security foundation | 🟡 **Implemented; all checks pass locally. Awaiting approval.** | 2026-10-15 |
-| 05 | CMS APIs & media | ⏸ Not started | — |
+| 04 | Database & admin security foundation | ✅ Approved | 2026-10-15 |
+| 05 | CMS APIs, media, leads & SEO | 🟡 **Implemented; all checks pass locally. Awaiting approval.** Cloudinary, Resend and Turnstile production configuration **pending** (no credentials; tested with mocks only). | 2026-10-15 |
 | 06 | Design system implementation & public shell | ⏸ Not started | — |
 | 07 | Public website | ⏸ Not started | — |
 | 08 | Admin dashboard | ⏸ Not started | — |
@@ -160,10 +160,69 @@ No packages removed or upgraded.
 ### Security limitations and known issues (honest status)
 - **Not a production security verification.** The controls are covered by automated tests and a local end-to-end run; no penetration test, dependency review beyond `npm audit`, or production configuration review has been done (planned for Stage 09).
 - **In-memory rate limits:** they reset on restart and are per process. This is fine for a single instance; it needs a shared store if scaled out (D-011).
-- **Notification e-mails are log-only** until the Resend driver (Stage 05, D-048). Admins are not actually e-mailed yet.
+- **Notification e-mails are log-only** until the Resend driver (Stage 05, D-048). Admins are not actually e-mailed yet. *(Stage 05: the Resend driver exists; it is inactive until credentials are configured.)*
 - **`mongodb-memory-server` in this environment** uses a `mongod` binary extracted from the official image (`MONGOMS_SYSTEM_BINARY`), because MongoDB's download host is blocked here. CI downloads the same version.
 - **No transactions:** publishing is one atomic document update followed by the revision/audit writes. If the process dies between them, the item is live but its revision snapshot may be missing (logged; it does not corrupt content).
 - **Prettier** occasionally needs two passes on long member chains (cosmetic).
 
+## Stage 05: CMS APIs, media, leads and SEO
+
+### Acceptance criteria
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Admin endpoints for settings, pages/sections, draft/preview/publish/unpublish, services, portfolio, testimonials, careers, media, ordering (draft-based), revisions/restore, redirects, dashboard | ✅ 97 admin routes (`API_REFERENCE.md` Appendix A); `test/contentApi.test.js`, `test/media.test.js`, `test/leads.test.js` |
+| 2 | Every admin write requires a `super_admin` session, checked on the server | ✅ router-level guard; the route-table test sends anonymous, password-only and enrolment-only requests to all 97 routes |
+| 3 | Unpublished content never leaks via public endpoints, references, search, previews or errors | ✅ `test/publicApi.test.js`, `test/seo.test.js` (drafts, archived, unconsented, unpermitted, expired, hidden sections, dropped links; identical 404s; preview is admin-only) |
+| 4 | Publishing rejects placeholders, unsafe links, invalid section types, missing consent/permission | ✅ plus template rules and unpublished references |
+| 5 | Optimistic concurrency, draft ordering, revisions, audit, pagination/filtering, consistent errors | ✅ |
+| 6 | Media: Cloudinary adapter + local driver; type/magic bytes/10 MB/formats; sharp re-encode; safe names; metadata only; SVG refused; in-use deletion blocked; provider failures leave no broken records/orphans | ✅ (Cloudinary **mocked**; real account pending) |
+| 7 | Leads: validation/normalisation, size limits, rate limits, server-side Turnstile (missing/invalid/expired/replayed), spam kept for review, no PII in logs, admin list/search/view/status/notes/CSV/erasure | ✅ (Turnstile **mocked**; the real service was unreachable from this environment) |
+| 8 | E-mail: replaceable adapter with Resend; development sends nothing; failures never lose the lead; retries; no delivery claims | ✅ (Resend **mocked**; credentials pending) |
+| 9 | Retention: default 365 days, configurable, scheduled, safe to re-run, documented, audited without PII; no destructive run on real data | ✅ tested on synthetic leads in throwaway databases only; the CLI was run in dry-run mode only |
+| 10 | SEO: per-page metadata, canonical, social tags, published-only sitemap, robots, real 404s, redirects, admin/API excluded; canonical `www` redirect disabled | ✅ `test/seo.test.js` |
+| 11 | Dashboard summary APIs without unnecessary PII | ✅ |
+| 12 | Isolated test databases, mocked providers, no real credentials; contract test; coverage ≥ 80 % for services/controllers | ✅ lines ≈ 89 % (services) / ≈ 85 % (controllers) |
+| 13 | Docs updated; full pipeline green | ✅ locally; CI result recorded below after the push |
+
+### Verification results (2026-10-15, Node 22.22.0, npm 10.9.4, MongoDB 8.0.34)
+| Check | Result |
+|---|---|
+| `npm run check:no-ts` | ✅ No TypeScript found |
+| `npm run lint` / `format:check` | ✅ clean |
+| `npm test` | ✅ shared 23 · server 278 · client 7 = **308 tests** (server suites on isolated in-memory MongoDB; Cloudinary, Resend and Turnstile mocked) |
+| `npm run test:coverage -w server` | ✅ statements 86.9 %, lines 89.4 % overall (services 89.3 % lines, controllers 84.9 % lines) |
+| `npm run build` | ✅ JS 110.4 KB gzip (unchanged) |
+| `npm run smoke` | ✅ 14/14, incl. 503 + noindex shell without a DB, robots blocking indexing, cross-origin lead rejection |
+| `npm audit --omit=dev --audit-level=high` | ✅ 0 vulnerabilities |
+| **Real MongoDB** (8.0.34, throwaway data directory) | ✅ 27/27 manual end-to-end checks on a running server (sign-in with 2FA enrolment → settings incl. step-up → upload with EXIF stripped → placeholder block → sanitised draft → publish → public API, HTML title, 301 normalisation, 404, sitemap, robots → in-use media refused → lead stored (`unverified`, Cloudflare unreachable) → CSV export → dashboard without PII → erasure). The server log contained no personal data. Data directory deleted afterwards. |
+| Real Cloudinary / Resend / Turnstile | ⏳ **Not verified**: no credentials supplied; activation and verification steps in `DEPLOYMENT.md` §4b |
+
+### Packages installed (Stage 05)
+| Workspace | Package (version) | Why |
+|---|---|---|
+| server | sanitize-html 2.18.1 | Rich-text allowlist sanitising |
+| server | multer 2.4.0 | Multipart upload parsing (memory, limits) |
+| server | file-type 22.2.0 | Magic-byte file type detection |
+| server | sharp 0.35.5 | Image verification, rotation, resizing, re-encoding, metadata stripping |
+| server | cloudinary 2.11.0 | Signed uploads, deletion and delivery URLs (D-018) |
+| server (dev) | @vitest/coverage-v8 5.0.5 | Coverage report for the acceptance target |
+
+No packages removed or upgraded. Resend and Turnstile are called with Node's built-in `fetch` (no SDKs).
+
+### Outstanding credentials and inputs
+- **Cloudinary** (`CLOUDINARY_URL`), **Resend** (`RESEND_API_KEY`, `MAIL_FROM`, verified domain), **Turnstile** (site key + `TURNSTILE_SECRET_KEY`): company-owned accounts needed (`DEPLOYMENT.md` §4b).
+- Verified contact-form fields from the original site (CG-20); until then the lead fields are provisional (D-053).
+- Real business content for every `[CONFIRM …]` placeholder (track V).
+
+### Security limitations and known issues (honest status)
+- **Third-party integrations are tested against mocks only.** Real request/response behaviour of Cloudinary, Resend and Turnstile has not been observed from this code.
+- **Single-instance assumptions:** in-memory rate limits, the public read cache and the job scheduler are per process (D-054, D-055).
+- **No transactions:** publish, revision, redirect and audit writes are sequential. A crash between them can leave a live item without its revision snapshot or slug redirect (logged; content is not corrupted).
+- **Media consistency edge cases:** if both the metadata insert and the compensating provider delete fail, an orphaned file remains (logged with its random key). If the provider delete succeeds and the metadata delete then fails, the record points to a missing file until the delete is retried.
+- **Lead notifications** contain no personal data by design (D-052); staff must sign in to read an enquiry.
+- **Turnstile outages** let submissions through as `unverified` (reviewed manually) rather than blocking real enquiries; rate limits still apply.
+- **CSV exports** contain personal data once downloaded; they leave the system's control (audited).
+- No penetration test or production configuration review yet (Stage 09).
+
 ## Dependencies (summary)
-Stages 00–02: none. Stage 03: see the Stage 03 table. Stage 04: see the table above. Planned additions by stage are listed in `DECISIONS.md` D-036.
+Stages 00–02: none. Stage 03: see the Stage 03 table. Stage 04 and Stage 05: see their tables above. Planned additions by stage are listed in `DECISIONS.md` D-036.

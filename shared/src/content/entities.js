@@ -1,10 +1,9 @@
 import { z } from 'zod';
-import { createKit } from './kit.js';
 import { imageRefSchema, linkSchema, seoSchema } from './primitives.js';
 import { PAGE_TEMPLATE_NAMES, sectionSchema } from './sections.js';
 
 /** Content shapes stored in `draft` / `published` (docs/DATABASE_SCHEMA.md §3). */
-const BUILDERS = {
+export const CONTENT_BUILDERS = {
   service: (k) =>
     k.object({
       title: k.req(k.text(80)),
@@ -113,7 +112,7 @@ const BUILDERS = {
     }),
 };
 
-const SETTINGS_BUILDERS = {
+export const SETTINGS_BUILDERS = {
   general: (k) =>
     k.object({
       companyName: k.req(k.text(120)),
@@ -256,34 +255,5 @@ const SETTINGS_BUILDERS = {
 };
 
 export const SETTINGS_KEYS = Object.freeze(Object.keys(SETTINGS_BUILDERS));
-export const CONTENT_TYPES = Object.freeze(Object.keys(BUILDERS));
+export const CONTENT_TYPES = Object.freeze(Object.keys(CONTENT_BUILDERS));
 export { PAGE_TEMPLATE_NAMES };
-
-const kits = { draft: createKit('draft'), publish: createKit('publish') };
-const build = (builders) =>
-  Object.fromEntries(
-    Object.entries(kits).map(([mode, k]) => [
-      mode,
-      Object.fromEntries(Object.entries(builders).map(([name, fn]) => [name, fn(k)])),
-    ]),
-  );
-const contentSchemas = build(BUILDERS);
-const settingsSchemas = build(SETTINGS_BUILDERS);
-
-/**
- * Content schema for an entity type ('service' | 'project' | 'testimonial' | 'job' | 'page' | 'ordering').
- * @param {string} type
- * @param {'draft' | 'publish'} mode
- */
-export function contentSchema(type, mode) {
-  const schema = contentSchemas[mode][type];
-  if (!schema) throw new Error(`Unknown content type: ${type}`);
-  return schema;
-}
-
-/** Content schema for a settings key. */
-export function settingsSchema(key, mode) {
-  const schema = settingsSchemas[mode][key];
-  if (!schema) throw new Error(`Unknown settings key: ${key}`);
-  return schema;
-}
