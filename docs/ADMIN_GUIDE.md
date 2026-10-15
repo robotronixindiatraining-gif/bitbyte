@@ -17,8 +17,13 @@
 | More accounts | Any super admin can add another named super admin (Administrators screen), so each person has their own account and audit trail. All accounts have identical rights (D-004). |
 | Session | Signs out after **2 h idle** or **12 h** total. "Sign out other devices" is available under Account. |
 | Lockout | Repeated failed sign-ins lock the account temporarily; the message is always generic |
-| Forgotten password | Another super admin resets it, or a developer runs `npm run admin:reset-password` on the server (D-027) |
-| Two-factor | Recommended (D-026, pending): authenticator-app codes at sign-in |
+| Two-factor (mandatory) | Every account uses an authenticator app (TOTP). At first sign-in you scan a QR code, confirm a code, and receive **10 recovery codes shown once**: store them offline. Until enrolment is complete, the account can only enrol, change its password or sign out (D-026, D-039). |
+| Sign-in | E-mail + password, then a 6-digit code (or one recovery code). A password alone never opens the dashboard. |
+| Sensitive actions | Changing your password, regenerating recovery codes, managing administrators, exporting or erasing leads and changing retention ask you to **re-confirm password + code** (valid 5 minutes) |
+| Lost phone | Sign in with a recovery code, then re-enrol under Account → Two-factor |
+| Lost phone **and** recovery codes | Another super admin uses **Reset two-factor** on your account (after re-confirming their own password + code). Your sessions end, your password stays the same, and you re-enrol at next sign-in. If no other admin can help, a developer runs `npm run admin:reset-2fa` on the server. |
+| Forgotten password | Another super admin sets a temporary password (your 2FA stays in place), or a developer runs `npm run admin:reset-password`. There are no e-mail reset links (D-027). |
+| Notifications | Every password or 2FA reset and every recovery-code use is e-mailed to the affected admin and all other admins, and shown as a dashboard alert for 7 days |
 
 ## 2. Dashboard
 On sign-in the dashboard shows, from the top:
@@ -65,20 +70,20 @@ On sign-in the dashboard shows, from the top:
 - **Navigation is separate:** pages don't appear in the menu automatically. Add them under **Settings → Navigation** (§8).
 
 ## 5. Services
-- **List:** drag or use up/down buttons to set display order. Reordering **applies to the live site immediately** after a confirmation (D-025). Badges show status.
+- **List:** drag-and-drop or the up/down buttons set the display order. **Reordering is a draft:** preview shows the new order, and it goes live only when you click **Publish order** (D-037). A banner shows "Order has unpublished changes". Badges show status.
 - **Editor fields** (from `DATABASE_SCHEMA.md` §3.5): title, menu label, slug, summary (card text), icon (picker from the curated set), hero image, intro (rich text), **offerings** (repeatable groups: title, optional description, bullet items), industries (tag input), process steps, technologies (tag picker from taxonomies), FAQs, related projects (picker of projects), CTA override, featured toggle, SEO.
 - **Seed state:** the five indexed services (Web Development, Internet of Things, Mobile App Development, CMS Solutions, Digital Marketing) start as drafts. Unverified copy is marked `[CONFIRM VERIFIED COPY]`, so they can't be published until the owner checks each text against the source (`CONTENT_INVENTORY.md`).
 
 ## 6. Portfolio
-- **Projects list:** filter by category and status; reorder; featured toggle visible in the list.
+- **Projects list:** filter by category and status; drag-and-drop ordering (draft → preview → **Publish order**, D-037); featured toggle visible in the list.
 - **Editor:** title, slug, summary, category, technologies, services delivered, client name + "show client name publicly", overview / challenge / solution / outcome (rich text), cover image (required), gallery (reorderable, captions), live URL, year, featured, SEO.
 - **Client permission panel:** a checkbox "The client has permitted us to show this work", with a note (who, how, when). The date is recorded automatically. **Required to publish** (CG-07b).
 - **Guardrails:** helper text on *Outcome* reads "Only results you can evidence. No invented metrics."
-- **Categories & technologies** (Portfolio → Taxonomies): add, rename and reorder. Delete is blocked while in use, and the screen lists where each one is used. Seeded categories: Web Development, E-Commerce, Internet of Things.
+- **Categories & technologies** (Portfolio → Taxonomies): add, rename, and reorder categories (draft → **Publish order**). Delete is blocked while in use, and the screen lists where each one is used. Seeded categories: Web Development, E-Commerce, Internet of Things.
 
 ## 7. Testimonials and careers
 - **Testimonials:** quote (exact approved wording), author name, role, company, optional photo, optional linked project, featured. A **consent panel** (method + note) is **required to publish**. Third-party directory reviews must not be entered. Until at least one testimonial is published, testimonial sections are hidden on the site automatically.
-- **Careers:** job title, department, location, employment type, experience, summary, description, responsibilities, requirements, how to apply, closing date. After the closing date a job disappears from the site and sitemap automatically. It can be **duplicated** to re-post. The careers page shows its empty-state text when no jobs are open.
+- **Careers:** job title, department, location, employment type, experience, summary, description, responsibilities, requirements, how to apply, closing date. After the closing date a job disappears from the site and sitemap automatically. It can be **duplicated** to re-post. The careers page shows its empty-state text when no jobs are open. Job order uses drag-and-drop with **Publish order**. **How candidates apply** is set under Settings → Careers (D-031).
 
 ## 8. Global settings (Settings area; each tab has its own draft → preview → publish)
 | Tab | What it controls |
@@ -89,8 +94,10 @@ On sign-in the dashboard shows, from the top:
 | **Footer** | Up to four link columns, show-contact toggle, copyright holder, bottom links |
 | **Social** | Profiles (LinkedIn, Instagram, Facebook, X, YouTube, GitHub, WhatsApp) |
 | **SEO defaults** | Title template, default description, default share image, organisation details for structured data, Search Console verification |
-| **Contact form** | Budget options, consent text, success message, **notification recipients** (private) |
-| **Integrations** | Analytics ID (if D-033 is approved), Turnstile site key (if D-020 enables it). Secret keys are configured on the server, never here. |
+| **Contact form** | Budget options, consent text, success message, **notification recipients** (private, max 5; e-mails sent via Resend, D-019) |
+| **Careers** | Application method: *Instructions* (default: free text per job), *E-mail* (careers address), *External link*, or *On-site form* (**unavailable until applicant-data handling is confirmed**, D-031) |
+| **Privacy** | Lead retention in days (default **365**, allowed 30–1095; spam 30 days). Changing it needs re-confirmation, and the new value applies to all stored leads (D-032). |
+| **Integrations** | Turnstile site key (public; the secret is on the server, D-020). Analytics is **deferred** (D-033). Secret keys are never entered here. |
 
 Seeded values carry `[CONFIRM …]` placeholders from `CONTENT_GAPS.md` (company name, legal entity, phones, e-mails, hours, consent text, budget options…). The dashboard lists every one until it is resolved.
 
@@ -115,11 +122,13 @@ Seeded values carry `[CONFIRM …]` placeholders from `CONTENT_GAPS.md` (company
 - **Lead detail:** all submitted fields, source page, UTM data, consent text and time, notification status (with **Resend**), status selector, notes timeline (add note), and quick actions (reply by e-mail, call).
 - **Statuses:** New → Contacted → In discussion → Won / Lost; plus **Spam**. Leads flagged by spam checks arrive in a separate "Possible spam" view rather than being silently discarded.
 - **Export:** CSV of the current filter (audited).
-- **Erase:** permanently deletes a lead on the person's request (type "DELETE" to confirm; audited without personal data). Retention-based clean-up runs automatically once D-032 is set.
+- **Export:** requires re-confirmation (password + code).
+- **Erase:** permanently deletes a lead on the person's request (re-confirmation + type "DELETE"; audited without personal data).
+- **Automatic retention:** leads are deleted automatically once older than the retention period (default 365 days; spam 30 days). Each lead shows its scheduled deletion date. Deleted data remains only in backups until they expire (≤ 35 days).
 - **E-mail notifications** go to the recipients in Settings → Contact form (D-019).
 
 ## 12. Administrators & activity
-- **Administrators:** list, add (name, e-mail, temporary password), disable or enable, reset password, revoke sessions. You can't disable yourself or the last active admin.
+- **Administrators:** list, add (name, e-mail, temporary password; the new admin must enrol 2FA), disable or enable, delete, **reset password** (2FA unchanged), **reset two-factor** (password unchanged), revoke sessions. Every action here needs re-confirmation and is audited and notified. You can't disable, delete or reset your own account here, or disable the last active admin (D-039).
 - **Activity log:** read-only history of sign-ins, publishes, deletions, settings changes, lead exports and erasures, filterable by person, action and date.
 
 ## 13. Safety rules built into the admin

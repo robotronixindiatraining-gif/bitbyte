@@ -106,7 +106,7 @@ These items appear on several indexed pages, which suggests they sit in a shared
 | Field | Value | Label |
 |---|---|---|
 | Original URL | No dedicated overview page found. "SERVICES" appears as a menu parent. | `indexed_unverified` |
-| Proposed route | `/services` | — |
+| Proposed route | `/services` (new overview page) | — |
 | Services listed in the menu | Web Development, Internet of Things, Mobile App Development, CMS Solutions, Digital Marketing | `indexed_unverified` (snippet-quoted, in upper case in the menu) |
 | Other services mentioned | Logo design, e-commerce websites, SEO and custom software appear in descriptions, but those descriptions come from the **excluded** training site. SEO is confirmed on the main site under Digital Marketing (P8). | **Not inventoried as main-site services** (CG-11) |
 
@@ -115,7 +115,7 @@ These items appear on several indexed pages, which suggests they sit in a shared
 | Field | Value | Label |
 |---|---|---|
 | Original URL | `[CONFIRM WEB DEVELOPMENT PAGE URL]`: menu item exists; tried `/web-development`, not found in index | `placeholder` |
-| Proposed route | `/services/web-development` | — |
+| Proposed route | `/web-development` *(provisional; must match the verified legacy URL, D-038)* | — |
 | Content | `[CONFIRM WEB DEVELOPMENT PAGE CONTENT]` | `placeholder` |
 
 ## P5. Service: Mobile App Development
@@ -123,7 +123,7 @@ These items appear on several indexed pages, which suggests they sit in a shared
 | Field | Value | Label |
 |---|---|---|
 | Original URL | `[CONFIRM MOBILE APP DEVELOPMENT PAGE URL]`: menu item exists; tried `/mobile-app-development`, not found in index | `placeholder` |
-| Proposed route | `/services/mobile-app-development` | — |
+| Proposed route | `/mobile-app-development` *(provisional; must match the verified legacy URL, D-038)* | — |
 | Content | `[CONFIRM MOBILE APP PAGE CONTENT]` (platforms such as Android, iOS or Flutter are **not** confirmed from the site) | `placeholder` |
 
 ## P6. Service: Internet of Things
@@ -131,7 +131,7 @@ These items appear on several indexed pages, which suggests they sit in a shared
 | Field | Value | Label |
 |---|---|---|
 | Original URL | `http://bitbyteindia.com/internet-of-things` (indexed over **http**, apex host) | `indexed_unverified` |
-| Proposed route | `/services/internet-of-things` | — |
+| Proposed route | `/internet-of-things` (legacy URL preserved, D-038) | — |
 | Title | `IT Services and IT Business Solution Company` | `indexed_unverified` |
 | Definition paragraph | "IoT is a network of physical devices that can be embedded with software and other electronics so that data and information can be shared." | `indexed_unverified` (snippet-quoted) |
 | Approach | "…refined approach to understand your business needs and find best-fit IoT solutions" (fragment); the page also claims cost-effective, efficient solutions | `indexed_unverified` (quoted fragment + paraphrase) |
@@ -148,7 +148,7 @@ These items appear on several indexed pages, which suggests they sit in a shared
 | Field | Value | Label |
 |---|---|---|
 | Original URL | `https://bitbyteindia.com/cms-development` (no trailing slash) | `indexed_unverified` |
-| Proposed route | `/services/cms-development` | — |
+| Proposed route | `/cms-development` (legacy URL preserved, D-038) | — |
 | Menu label | "CMS SOLUTIONS" (the page slug says "cms-development") | `indexed_unverified` |
 | Main paragraph | "We provide custom wordpress development services for businesses spanning every sector and market. We offer the best set of WordPress plugins, advanced templates, and exceptional menu management options to our clients." | `indexed_unverified` (snippet-quoted; lower-case "wordpress" as returned) |
 | Responsive design | "For responsive web design, we optimize the site for mobiles, tablets, etc." | `indexed_unverified` (snippet-quoted) |
@@ -162,7 +162,7 @@ These items appear on several indexed pages, which suggests they sit in a shared
 | Field | Value | Label |
 |---|---|---|
 | Original URL | `https://www.bitbyteindia.com/digital-marketing` | `indexed_unverified` |
-| Proposed route | `/services/digital-marketing` | — |
+| Proposed route | `/digital-marketing` (legacy URL preserved, D-038) | — |
 | Intro | "Bitbyte evaluate your website traffic, determine the best online platforms to invest in, and continually maintain the balance between your marketing activities and the result we provide." | `indexed_unverified` (snippet-quoted; original grammar kept) |
 | SEO lead-in | "Depending on your goals, and needs one, or a combination, of the below services may be right for your website." | `indexed_unverified` (snippet-quoted; original punctuation kept) |
 | SEO service list | "Website SEO Audit - On-Page SEO - Off-Page SEO - SEO Content Development - Code Optimization - Local Business SEO" | `indexed_unverified` (snippet-quoted) |

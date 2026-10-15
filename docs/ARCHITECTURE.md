@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Stage 02 specification. Proposed, awaiting approval. Nothing is implemented yet. |
+| **Status** | Approved in Stage 02 with refinements (D-018–D-041). **Stage 03 implemented the foundation**; see §12 for what exists today. |
 | **Related** | `DATABASE_SCHEMA.md`, `API_REFERENCE.md`, `DESIGN_SYSTEM.md`, `ADMIN_GUIDE.md`, `ROUTE_MAP.md`, `DECISIONS.md` |
 | **Constraints** | MongoDB, Express, React, Node.js, Tailwind CSS. **JavaScript only, no TypeScript anywhere.** One administrative role (`super_admin`); public visitors are anonymous. |
 
@@ -21,12 +21,12 @@
   │                     │  /*  (everything else) → React app shell with per-route SEO meta injected     │
   │                     └──────────────────────────────────────────────────────────────────────────────┘
   │                                   │ upload / delete                        │ notify
-  └──── images (CDN URL) ◀────── Object storage (media files)          SMTP provider (lead e-mails)
+  └──── images (CDN URL) ◀────── Cloudinary (media files)          Resend (lead e-mails) · Cloudflare Turnstile (verify)
 ```
 
 - **Same origin** for site, admin and API. Session cookies stay first-party (`SameSite=Strict`), and production needs no CORS.
 - **Media binaries live in object storage**; MongoDB stores only metadata and URLs (`DATABASE_SCHEMA.md` → `media`).
-- **External services:** MongoDB (Atlas recommended), object storage (provider pending, D-018), SMTP (pending, D-019), and optionally Cloudflare Turnstile (pending, D-020).
+- **External services:** managed MongoDB (Atlas, D-021), **Cloudinary** for media (D-018), **Resend** for notification e-mail behind a replaceable adapter (D-019), and **Cloudflare Turnstile** verified server-side on public forms (D-020). All credentials stay server-side. No analytics (D-033).
 
 ## 2. Repository structure (npm workspaces)
 
@@ -35,7 +35,7 @@ bitbyte/
 ├─ client/          React 19 + Vite + Tailwind CSS v4 (public site AND admin UI, code-split)
 ├─ server/          Express 5 + Mongoose 9 API, SEO rendering, static hosting of client build
 ├─ shared/          Plain JS (ESM): zod schemas, enums, section registry definitions, slug rules
-├─ e2e/             Playwright end-to-end + accessibility tests
+├─ e2e/             Playwright end-to-end + accessibility tests (added in Stage 06, D-040)
 ├─ docs/            Project documentation (this folder)
 ├─ scripts/         Repo tooling (e.g. check-no-typescript.js)
 ├─ .github/workflows/ci.yml
@@ -97,10 +97,9 @@ client/src/
 | Pattern | Layout | Data |
 |---|---|---|
 | `/` , `/about`, `/services`, `/portfolio`, `/careers`, `/contact`, `/privacy-policy`, `/terms` | Public | `GET /public/pages/:slug` (fixed-template pages) |
-| `/services/:slug` | Public | `GET /public/services/:slug` |
 | `/portfolio/:slug` | Public | `GET /public/projects/:slug` |
 | `/careers/:slug` | Public | `GET /public/jobs/:slug` |
-| `/:slug` (custom pages, reserved words excluded) | Public | `GET /public/pages/:slug` |
+| `/:slug`: **service pages at the top level** (`/cms-development`, `/internet-of-things`, `/digital-marketing`, …) **or** custom pages; one shared namespace, reserved words excluded (D-038) | Public | Resolved server-side; client uses `GET /public/resolve` → `/public/services/:slug` or `/public/pages/:slug` |
 | `/admin/login` | Auth | — |
 | `/admin/*` | Admin | `/admin/*` endpoints |
 | `/admin/preview/:entity/:id` | Preview | `/admin/preview/*` endpoints |
@@ -209,10 +208,10 @@ Full contract in `API_REFERENCE.md`.
 There is **no public registration, login or account system**. The only login form is `/admin/login`.
 
 ### 7.2 Key flows
-- **Login:** `POST /auth/login` → login limiter → origin check → zod → find user by email → argon2id verify (with a dummy hash when the user doesn't exist, to keep timing constant) → lockout checks → create session (random 256-bit token; store SHA-256 hash) → `Set-Cookie` → audit `auth.login`.
+- **Login (D-039):** `POST /auth/login` → login limiter → origin check → zod → find admin by e-mail → argon2id verify (dummy hash when the admin doesn't exist, keeping timing constant) → lockout checks → **`mfa_pending` session** (5 min, single use; or a restricted `enrollment` session if 2FA isn't set up yet) → `POST /auth/login/verify` with TOTP or recovery code → cookie rotated to a full `active` session → audit `auth.login`. **A password alone never produces a full session.**
 - **Admin write:** cookie → session lookup (by token hash, not expired, user active) → idle-timeout refresh → `requireSuperAdmin` → validate → service (revision check, sanitise, compute references, placeholder scan) → save → audit → respond.
 - **Publish:** service validates the full draft with the strict "publishable" schema → refuses if `[CONFIRM …]` placeholders remain or referenced media/entities aren't published → copies `draft` → `published` → writes a `revisions` snapshot → audit → invalidates public cache → `published` changes go live.
-- **Lead submission:** public limiter → honeypot + minimum fill-time check → optional Turnstile verify → zod → sanitise → store `leads` → queue notification e-mail (failure is logged, never lost) → generic success response.
+- **Lead submission:** public limiter → honeypot + minimum fill-time check → **server-side Turnstile `siteverify` (required, D-020)** → zod → sanitise → store `leads` → queue notification e-mail (failure is logged, never lost) → generic success response.
 - **Media upload:** upload limiter → multer (size cap, single file) → magic-byte check → `sharp` re-encode + variants + EXIF strip → storage adapter → `media` document → audit.
 
 ### 7.3 Controls (summary; details in `API_REFERENCE.md` §2)
@@ -232,33 +231,42 @@ All configuration comes from environment variables, validated at boot by `server
 | `SESSION_COOKIE_NAME` | `__Host-bb_sid` (prod), `bb_sid` (dev) | |
 | `SESSION_IDLE_MINUTES` / `SESSION_ABSOLUTE_HOURS` | `120` / `12` | |
 | `ALLOWED_ORIGINS` | `https://www.bitbyteindia.com` | Comma-separated; dev adds `http://localhost:5173` |
-| `MEDIA_DRIVER` | `local` / provider name (D-018) | |
+| `MEDIA_DRIVER` | `cloudinary` (prod) / `local` (dev) | D-018 |
 | `MEDIA_LOCAL_DIR` | `./uploads` | Dev only; git-ignored |
-| `MEDIA_PUBLIC_BASE_URL` | CDN or storage base URL | |
-| Provider credentials | e.g. `CLOUDINARY_URL` or `S3_*` | Depends on D-018 |
-| `SMTP_HOST` `SMTP_PORT` `SMTP_USER` `SMTP_PASS` `MAIL_FROM` | | Depends on D-019 |
-| `TURNSTILE_SECRET_KEY` | | Optional (D-020) |
-| `LOG_LEVEL` | `info` | |
-| `IP_HASH_SALT` | random | Leads store a salted IP hash, not raw IPs |
+| `CLOUDINARY_URL` | `cloudinary://<key>:<secret>@<cloud>` | **Secret.** Server only (D-018) |
+| `MAIL_DRIVER` | `resend` (prod) / `log` (dev, test) | D-019 |
+| `RESEND_API_KEY` | `re_…` | **Secret** (D-019) |
+| `MAIL_FROM` | `BitByte Website <notifications@…>` | Verified sending domain |
+| `TURNSTILE_SECRET_KEY` | | **Secret** (D-020); Cloudflare test keys in development |
+| `TURNSTILE_ALLOWED_HOSTNAMES` | `www.bitbyteindia.com` | Checked against the siteverify `hostname` |
+| `TOTP_ENCRYPTION_KEY` | 32 random bytes, base64 | **Secret.** Encrypts TOTP secrets at rest (D-039) |
+| `RECOVERY_CODE_PEPPER` | random | **Secret.** HMAC key for recovery-code hashes (D-039) |
+| `IP_HASH_SALT` | random | **Secret.** Leads and sessions store a salted IP hash, not raw IPs |
+| `CANONICAL_HOST` | *(unset)* | Host redirect **disabled while unset**; set only after DNS verification (D-028) |
+| `ERROR_TRACKING_DSN` | *(unset)* | Optional external error tracking (D-022) |
+| `LOG_LEVEL` / `LOG_PRETTY` | `info` / `false` | Pretty logs only in development |
+| `CLIENT_DIST_DIR` | `../client/dist` | Built client served by Express when present |
+
+Only the variables used by implemented code are validated today (§12). The rest are introduced, with validation, in the stage that needs them. `server/.env.example` lists them all as **placeholders**.
 
 Client build-time variables (`VITE_*`) carry **no secrets**; public keys such as the Turnstile site key are served from site settings.
 
 ## 9. Local development
 - **Prerequisites:** Node ≥ 22.22 (`.nvmrc`), npm 10, and MongoDB 7+ running locally at `127.0.0.1:27017` (or a Docker container).
 - **Setup:** `npm ci` → copy `server/.env.example` to `server/.env` → `npm run seed` (idempotent; inserts placeholder content, never drops) → `npm run admin:create`.
-- `npm run dev` starts Vite (5173) and the API (4000, nodemon) together. Vite proxies `/api`, `/sitemap.xml` and `/robots.txt` to the API, so the browser sees one origin and needs no CORS.
-- Other scripts: `npm run lint`, `npm run format`, `npm test` (all workspaces), `npm run test:e2e`, `npm run build` (client build), `npm start` (production server serving `client/dist`).
+- `npm run dev` starts Vite (5173) and the API (4000, `node --watch`; `server/.env` is loaded by the server itself when present) together. Vite proxies `/api`, `/sitemap.xml` and `/robots.txt` to the API, so the browser sees one origin and needs no CORS.
+- Other scripts: `npm run lint`, `npm run format`, `npm test` (all workspaces), `npm run build` (client build), `npm start` (production server serving `client/dist`), `npm run smoke`, `npm run check` (everything CI runs). `npm run test:e2e` arrives with Playwright in Stage 06. The authoritative list is in `README.md`.
 - The database is never reset by a script without an explicit `--force` flag and confirmation prompt. Tests use an in-memory MongoDB, never the dev database.
 
-## 10. Production deployment & operations (host pending, D-021)
+## 10. Production deployment & operations (D-021; proposed setup in `DEPLOYMENT.md`)
 - **Build:** `npm ci && npm run build` in CI → artefact = `server/` + `shared/` + `client/dist`.
 - **Runtime:** one Node process (PM2 or systemd on a VPS, or a managed Node platform) behind a TLS-terminating reverse proxy/CDN. Scale by adding instances only if needed. Rate-limit and session state are already in MongoDB or need a shared store at that point (noted in D-011).
-- **Database:** MongoDB Atlas (Mumbai region recommended), with a least-privilege user (readWrite on the app DB only), daily backups and a tested restore procedure.
-- **Media:** object storage + CDN (D-018), backed up or versioned by the provider.
+- **Database:** MongoDB Atlas (region co-located with the app host, see `DEPLOYMENT.md`), with a least-privilege user (readWrite on the app DB only), daily backups and a tested restore procedure.
+- **Media:** Cloudinary (D-018); originals are also recoverable from the admin export procedure in `DEPLOYMENT.md`.
 - **Logging:** pino JSON to stdout → host log collection. Request ID on every line. Redaction of `authorization`, `cookie`, `password`, `token` and lead PII fields. Log levels: `info` in production, `debug` in development.
-- **Monitoring:** `/api/v1/health` (`{ status, db }`, no version info) for uptime checks. Optional error tracking (D-022). Alerts on 5xx rate and failed lead e-mails.
+- **Monitoring:** `/api/v1/health` (liveness) and `/api/v1/health/ready` (readiness) (D-041). Optional error tracking (D-022, off by default). Alerts on 5xx rate and failed lead e-mails.
 - **Releases:** CI must pass (lint, unit, integration, build, e2e smoke, no-TS check, `npm audit --omit=dev --audit-level=high`) before deploy. Rollback = redeploy the previous artefact. Schema changes are additive, with idempotent migration scripts.
-- Full procedure arrives in `DEPLOYMENT.md` (Stage 10).
+- The proposed hosting setup is in `DEPLOYMENT.md`; the full procedure is completed in Stage 10.
 
 ## 11. Testing strategy
 | Layer | Tool | Covers |
@@ -269,3 +277,12 @@ Client build-time variables (`VITE_*`) carry **no secrets**; public keys such as
 | Client | Vitest + Testing Library | Primitives, section renderers, forms |
 | End-to-end | Playwright (+ axe) | Visitor journeys, lead submission, admin login → edit → preview → publish, keyboard navigation, accessibility per template |
 | Performance | Lighthouse CI | Budgets in `DESIGN_SYSTEM.md` §11 |
+
+## 12. Implementation status (Stage 03 foundation)
+| Area | Exists now | Arrives in |
+|---|---|---|
+| Workspaces | `client/`, `server/`, `shared/`; root scripts; CI workflow | — |
+| Server | `createApp` factory, zod-validated config, pino logging with redaction, request IDs, helmet security headers, JSON body limit, `validate()` middleware, `AppError` + central error handler (safe envelopes), API 404, liveness/readiness health, MongoDB connection with background retry (no schemas), static client serving with SPA fallback, graceful shutdown | Sessions/auth (04), models (04), CMS endpoints (05), meta injection/sitemap (05/07) |
+| Shared | Error codes, roles, API prefix, zod helpers (`objectIdSchema`, `slugSchema`, `formatZodIssues`), `[CONFIRM …]` placeholder scanner, reserved slugs | Section/entity schemas (04–05) |
+| Client | Vite + React 19 + Tailwind v4 tokens (provisional palette), React Router, TanStack Query, API client with error normalisation, foundation status page with live API health, 404 | Design-system components (06), public pages (07), admin (08) |
+| Quality | ESLint 9 (react, hooks, jsx-a11y), Prettier, Vitest (shared/server/client), Supertest, no-TypeScript guard, smoke test (client build + production server start) | Playwright + axe (06), Lighthouse CI (07) |

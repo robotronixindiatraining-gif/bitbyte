@@ -241,7 +241,7 @@ Empty fields hide their block.
 - **Fields:** exactly those in `DATABASE_SCHEMA.md` §3.11. Labels above inputs, `autocomplete` attributes (`name`, `organization`, `email`, `tel`), budget as a `<select>` from settings, message `<textarea>` with a character counter, and a consent checkbox with CMS text and a privacy-policy link.
 - **Validation:** inline on blur, plus an error summary on submit that lists errors as links and moves focus to the summary.
 - **Submit:** loading state; on success the form is replaced by the success message, with focus moved to its heading. On a network error the entered data is kept and a retry message shown.
-- **Spam:** hidden honeypot (off-screen, `tabindex=-1`, `aria-hidden`) and time check. Turnstile widget only if enabled (D-020).
+- **Spam:** Cloudflare Turnstile widget (**required**; managed/invisible mode where possible; script loaded only on form pages; its token is verified server-side, D-020), plus a hidden honeypot (off-screen, `tabindex=-1`, `aria-hidden`) and a time check. If verification fails, the widget resets and an inline message asks the visitor to try again. The visitor's entries are kept.
 
 ### 9.8 Footer
 `navy-950`. Four columns:
@@ -270,7 +270,7 @@ A bottom bar holds `© {current year} {copyrightHolder}` and legal links. The Bi
   - **LCP < 2.5 s, CLS < 0.1, INP < 200 ms.**
   - Public initial JS ≤ 120 KB gzip; CSS ≤ 30 KB gzip; preloaded fonts ≤ 2 files (~80 KB).
   - Hero LCP is text or the inline SVG (no network image).
-  - **No third-party scripts by default.** Analytics is added only after decision D-033, deferred and consent-aware.
+  - **No third-party scripts** except the Turnstile widget on pages that contain a form (D-020). Analytics is **deferred** (D-033).
 
 ## 12. Admin UI
 - **Same tokens and primitives, light theme, denser spacing** (body 14–15 px; tables 40 px rows).

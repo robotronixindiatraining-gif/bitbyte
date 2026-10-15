@@ -2,9 +2,10 @@
 
 | | |
 |---|---|
-| **Last updated** | 2026-10-15 (Stage 02: route classification + new public/admin route architecture) |
+| **Last updated** | 2026-10-15 (Stage 02 refinements: legacy top-level URLs preserved, D-038) |
 | **Source of legacy URLs** | Search-engine indexes only (`indexed_unverified`). The live site has **not** been crawled (`STAGE_LOG.md`, Stage 01 §2). |
 | **Excluded** | `training.bitbyteindia.com/*`: separate property (D-003). Not migrated, no redirects. |
+| **Policy** | **Preserve existing URLs wherever practical.** Redirects are added only when necessary (D-038). |
 
 ## Route classes
 | Class | Meaning |
@@ -14,60 +15,59 @@
 | **N: New** | Proposed for the new site; no legacy equivalent |
 | **C: Needs confirmation** | Existence or purpose unknown; resolve when the live site or an export is available |
 
-## 1. Host and protocol canonicalisation
+## 1. Host, protocol and path normalisation
 
 The index holds URLs on **both hosts and both protocols**: `https://www.bitbyteindia.com/careers/`, `https://bitbyteindia.com/cms-development`, `http://bitbyteindia.com/internet-of-things`.
 
-| From | To | Code | Notes |
+| From | To | Code | Status |
 |---|---|---|---|
-| `http://bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | At the proxy/host level |
-| `http://www.bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | HSTS after launch |
-| `https://bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | Canonical host **proposed as `www`** (D-028, pending) |
-| Any path with a trailing slash (e.g. `/careers/`) | Same path without the slash | 301 | The new site uses no trailing slashes; handled generically by the server |
-| Upper-case paths | Lower-case | 301 | Normalisation |
+| `http://…/*` | `https://…/*` | 301 | At the host/proxy; enabled at launch |
+| `https://bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | **Provisional (D-028).** Config-driven (`CANONICAL_HOST`), **disabled by default**; enabled only after verifying the actual DNS/TLS setup and Search Console's preferred host |
+| Path with trailing slash (e.g. `/careers/`) | Same path without it (`/careers`) | 301 | Normalisation, to avoid duplicate URLs. Necessary because the legacy site mixes both styles. |
+| Upper-case path | Lower-case | 301 | Normalisation |
 
 ## 2. Public routes
 
-| # | New route | Class | Legacy URL | Content source | Redirect required |
+| # | New route | Class | Legacy URL | Content source | Redirect |
 |---|---|---|---|---|---|
-| 1 | `/` | **K** | `/` | `pages` (template `home`) | — |
-| 2 | `/about` | **I** | `[UNKNOWN]`: "About Us" menu item | `pages` (`about`) | When legacy URL known → 301 |
-| 3 | `/services` | **I** | `[UNKNOWN]`: "SERVICES" menu parent (may not be a page) | `pages` (`services-index`) | If a legacy URL exists → 301 |
-| 4 | `/services/web-development` | **I** | `[UNKNOWN]`: menu item; `/web-development` not indexed | `services` | When known → 301 |
-| 5 | `/services/internet-of-things` | **K** | `/internet-of-things` | `services` | **301 `/internet-of-things`** |
-| 6 | `/services/mobile-app-development` | **I** | `[UNKNOWN]`: menu item; `/mobile-app-development` not indexed | `services` | When known → 301 |
-| 7 | `/services/cms-development` | **K** | `/cms-development` (menu label "CMS SOLUTIONS") | `services` | **301 `/cms-development`** |
-| 8 | `/services/digital-marketing` | **K** | `/digital-marketing` | `services` | **301 `/digital-marketing`** |
-| 9 | `/portfolio` | **K** | `/portfolio` | `pages` (`portfolio-index`) + `projects` | — (path preserved) |
-| 10 | `/portfolio/:slug` | **N** / **C** | `[UNKNOWN]`: project detail pages may or may not exist | `projects` | Map each if found |
-| 11 | `/careers` | **K** | `/careers/` | `pages` (`careers`) + `jobOpenings` | Trailing-slash 301 (generic) |
+| 1 | `/` | **K** | `/` | `pages` (`home`) | — |
+| 2 | `/about` | **I** | `[UNKNOWN]`: "About Us" menu item | `pages` (`about`) | **Adopt the legacy path instead** if it differs, once verified; otherwise 301 |
+| 3 | `/services` | **N** / **I** | `[UNKNOWN]`: "SERVICES" is a menu parent and may not be a page | `pages` (`services-index`) | — |
+| 4 | `/web-development` *(provisional)* | **I** | `[UNKNOWN]`: menu item; `/web-development` not found in the index | `services` | Slug set to the verified legacy path; no redirect needed |
+| 5 | `/internet-of-things` | **K** | `/internet-of-things` | `services` | — **(preserved)** |
+| 6 | `/mobile-app-development` *(provisional)* | **I** | `[UNKNOWN]`: menu item; not found in the index | `services` | Slug set to the verified legacy path; no redirect needed |
+| 7 | `/cms-development` | **K** | `/cms-development` (menu label "CMS SOLUTIONS") | `services` | — **(preserved)** |
+| 8 | `/digital-marketing` | **K** | `/digital-marketing` | `services` | — **(preserved)** |
+| 9 | `/portfolio` | **K** | `/portfolio` | `pages` (`portfolio-index`) + `projects` | — **(preserved)** |
+| 10 | `/portfolio/:slug` | **N** / **C** | `[UNKNOWN]`: detail pages may or may not exist | `projects` | If legacy detail URLs exist, use their slugs; 301 only if their structure differs |
+| 11 | `/careers` | **K** | `/careers/` | `pages` (`careers`) + `jobOpenings` | Trailing-slash normalisation only |
 | 12 | `/careers/:slug` | **N** | — | `jobOpenings` | — |
-| 13 | `/contact` | **K** | `/contact` | `pages` (`contact`) | — (path preserved) |
-| 14 | `/privacy-policy` | **N** / **C** | Not indexed; existence unknown | `pages` (`legal`) | Map if a legacy URL exists |
-| 15 | `/terms` | **N** / **C** | Not indexed; existence unknown | `pages` (`legal`) | Map if a legacy URL exists |
-| 16 | `/:slug` | **N** | — | `pages` (`custom`, D-030) | — |
-| 17 | `[UNKNOWN]` "Company" | **C** | Menu item; purpose unknown | Probably a dropdown parent → `/about` | Decide after inspection |
-| 18 | `[UNKNOWN]` "Get Started with us" | **C** | Nav CTA; target unknown | Probably `/contact` | Map if it's a separate URL |
+| 13 | `/contact` | **K** | `/contact` | `pages` (`contact`) | — **(preserved)** |
+| 14 | `/privacy-policy` | **N** / **C** | Not indexed; existence unknown | `pages` (`legal`) | Use the legacy path if one exists |
+| 15 | `/terms` | **N** / **C** | Not indexed; existence unknown | `pages` (`legal`) | Use the legacy path if one exists |
+| 16 | `/:slug` (custom page) | **N** | — | `pages` (`custom`, D-030) | — |
+| 17 | `[UNKNOWN]` "Company" | **C** | Menu item; purpose unknown | Probably a dropdown parent | Decide after inspection |
+| 18 | `[UNKNOWN]` "Get Started with us" | **C** | Nav CTA; target unknown | Probably `/contact` | Preserve or redirect once known |
 | 19 | `/sitemap.xml`, `/robots.txt` | **N** | Not fetched | Generated by the server | — |
 | 20 | `*` | **N** | — | 404 page (HTTP 404) | — |
 
-**Valuable paths preserved:** `/`, `/portfolio` and `/contact` keep their URLs. `/careers` only loses its trailing slash. Service pages move under `/services/` for a clear hierarchy (better breadcrumbs and structured data), with 301s carrying any existing ranking.
+### Top-level slug resolution (D-038)
+`/<slug>` is resolved in this order: **reserved route** (`/services`, `/portfolio`, `/careers`, `/contact`, `/about`, `/admin`, `/api`, …) → **service** → **custom page** → **redirect** → **404**. Slugs are unique across services and custom pages, so a URL can never be ambiguous. The reserved list is in `DATABASE_SCHEMA.md` §5.
 
-**Alternative (owner choice):** keep the service URLs at the top level (`/internet-of-things`, …) to avoid redirects entirely. Recommended against: the redirect costs little, and the nested structure scales better.
+## 3. Redirects
 
-## 3. Redirect rules confirmed from the index (seeded into `redirects`)
-```
-301  /internet-of-things   → /services/internet-of-things
-301  /cms-development      → /services/cms-development
-301  /digital-marketing    → /services/digital-marketing
-(generic) trailing slash   → no trailing slash   (covers /careers/)
-```
-Further entries will be added when the routes marked **I**/**C** are resolved. Slug changes made later in the CMS create redirects automatically (`DATABASE_SCHEMA.md` §3.12).
+**Required at launch:** only the normalisations in §1 (protocol, trailing slash, case). Host canonicalisation follows after verification.
+
+**No redirects** are needed for the indexed service URLs; they are preserved as-is.
+
+**Later, automatic or managed:**
+- slug changes made in the CMS (created on publish, `DATABASE_SCHEMA.md` §3.12);
+- any legacy URL found later (crawl, export or Search Console) that can't be preserved.
 
 ## 4. Non-public routes (new)
 | Route | Purpose | Protection |
 |---|---|---|
-| `/admin/login` | Super-admin sign-in | Rate-limited; `noindex` |
+| `/admin/login` | Super-admin sign-in (password + TOTP) | Rate-limited; `noindex` |
 | `/admin`, `/admin/*` | Admin dashboard (`ADMIN_GUIDE.md`) | UX guard client-side; **all data via `/api/v1/admin/*`, which enforces `super_admin` server-side**; `noindex`; disallowed in `robots.txt` |
 | `/admin/preview/:entity/:id` | Draft preview | Same as above; `X-Robots-Tag: noindex` |
 | `/api/v1/*` | REST API (`API_REFERENCE.md`) | Disallowed in `robots.txt` |
@@ -77,4 +77,4 @@ Further entries will be added when the routes marked **I**/**C** are resolved. S
 2. A Google Search Console export (indexed pages + pages with traffic), **or**
 3. The hosting file listing or site export.
 
-These resolve rows 2, 3, 4, 6, 10, 14, 15, 17 and 18.
+These resolve rows 2, 3, 4, 6, 10, 14, 15, 17 and 18, and the verification needed before host canonicalisation (D-028).

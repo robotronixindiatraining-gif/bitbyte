@@ -23,7 +23,8 @@
 | `jobOpenings` | Career opportunities | ✓ | The careers page has a "Current Opportunities" section (inventory P12) |
 | `media` | Metadata for uploaded images (no binaries) | — | Alt text, variants, safe deletion and reuse across content |
 | `leads` | Contact / project-enquiry submissions | — | The contact form exists, with 7 fields + captcha (inventory P13a) |
-| `redirects` | Legacy and slug-change redirects | — | 4 known legacy redirects (`ROUTE_MAP.md`) + automatic slug-change redirects |
+| `redirects` | Slug-change and unpreservable legacy redirects | — | Indexed service URLs are preserved (D-038), so it starts empty; slug changes create entries automatically |
+| `orderings` | Draft/published order of listings | ✓ | Ordering changes must not go live until published (D-037) |
 | `revisions` | Snapshots of each published version | — | Rollback; justified because one admin publishes directly, with no reviewer |
 | `auditLogs` | Record of privileged actions | — | Accountability for an all-powerful single role |
 
@@ -41,7 +42,7 @@
 ## 2. Shared conventions
 
 ### 2.1 Publishable document shape
-Used by `settings`, `pages`, `services`, `projects`, `testimonials` and `jobOpenings`.
+Used by `settings`, `pages`, `services`, `projects`, `testimonials`, `jobOpenings` and `orderings`.
 
 ```js
 {
@@ -59,7 +60,6 @@ Used by `settings`, `pages`, `services`, `projects`, `testimonials` and `jobOpen
   firstPublishedAt: Date|null,
   publishedAt: Date|null,
   publishedBy: ObjectId|null,     // → admins
-  order: Number,                  // listing order (applies immediately, D-025)
   // derived on every save, never sent by clients:
   mediaRefs: [ObjectId],          // → media, union of draft + published references
   entityRefs: [{ kind: String, id: ObjectId }], // services/projects/testimonials/pages/jobs referenced
@@ -70,7 +70,7 @@ Used by `settings`, `pages`, `services`, `projects`, `testimonials` and `jobOpen
 ```
 
 **Rules**
-- **Public reads** filter on `status: 'published'` and project **only** `slug` + `published` (+ `order`). Draft fields never leave the server on public routes.
+- **Public reads** filter on `status: 'published'` and project **only** `slug` + `published`. Listing order comes from the published `orderings` document (D-037). Draft fields never leave the server on public routes.
 - **Draft save:** `updateOne({ _id, revision: clientRevision }, { $set: { draft, … }, $inc: { revision: 1 } })`. If no document matched → 409 `EDIT_CONFLICT`. The save is atomic in one document.
 - **Publish:**
   1. Validate `draft` with the strict *publishable* schema.
@@ -78,7 +78,7 @@ Used by `settings`, `pages`, `services`, `projects`, `testimonials` and `jobOpen
   3. Require all `entityRefs` published and all `mediaRefs` present.
   4. Set `published = draft`, `status = 'published'`, `publishedRevision = revision`, `hasUnpublishedChanges = false`.
   5. Then insert a `revisions` snapshot and an `auditLogs` entry. The live change is one atomic single-document update, so **no multi-document transaction is needed**. Local standalone MongoDB works as-is.
-- **Slug change:** an edited slug lives in `draft.slug` until publish. On publish the old slug gets an automatic 301 in `redirects` (`source: 'slug-change'`). Slug uniqueness is checked across both `slug` and `draft.slug` of other documents in the same collection.
+- **Slug change:** an edited slug lives in `draft.slug` until publish. On publish the old slug gets an automatic 301 in `redirects` (`source: 'slug-change'`). Slug uniqueness is checked across `slug` and `draft.slug` of other documents. **Services and custom pages share one top-level namespace** (D-038), so uniqueness is checked across both collections plus the reserved list (§5).
 - **Unpublish:** `status → 'archived'`. `published` is kept so it can be republished or restored.
 - **Restore revision:** copies a snapshot into `draft` (not live until published again).
 
@@ -129,7 +129,8 @@ Seed content uses the `[CONFIRM …]` placeholders from `CONTENT_GAPS.md`. Every
 | `lastLoginAt` | Date\|null | |
 | `passwordChangedAt` | Date | invalidates older sessions |
 | `mustChangePassword` | Boolean | true for CLI-created or reset accounts |
-| `twoFactor` | `{ enabled, secretEncrypted, recoveryCodeHashes[] }` | **only if D-026 is approved** |
+| `twoFactor` | `{ enabled: Boolean, secretEncrypted: String (AES-256-GCM, key from env), lastUsedStep: Number, enrolledAt: Date, recoveryCodeHashes: [String] (HMAC-SHA-256), recoveryCodesGeneratedAt: Date }` | **Mandatory** (D-026). `select: false`; secret never returned after enrolment; rules in D-039 |
+| `securityAlertUntil` | Date\|null | set for 7 days after any password/2FA reset (dashboard alert) |
 | `createdBy` | ObjectId\|null | null when created by the CLI |
 | timestamps | | |
 
@@ -144,6 +145,9 @@ Invariants (service layer): at least one `active` admin must always exist; an ad
 | `createdAt` | Date | |
 | `lastSeenAt` | Date | updated at most once per minute |
 | `expiresAt` | Date | `min(lastSeenAt + idle, createdAt + absolute)` |
+| `stage` | enum | `mfa_pending` (after a correct password; ≤ 5 min, single use) · `enrollment` (restricted: enrol / change password / logout only) · `active` (full access) (D-039) |
+| `mfaAttempts` | Number | max 5 per `mfa_pending` session |
+| `stepUpAt` | Date\|null | last password + TOTP re-authentication; sensitive actions need ≤ 5 min |
 | `ipHash`, `userAgent` | String | for the "active sessions" view |
 
 Indexes: `{ tokenHash: 1 }` unique · `{ admin: 1 }` · `{ expiresAt: 1 }` **TTL** (`expireAfterSeconds: 0`).
@@ -159,8 +163,10 @@ One publishable document per `key` (unique). Draft/publish applies so header/foo
 | `footer` | `columns: [{ heading, links: [Link] }]` (max 4), `showContact: Boolean`, `copyrightHolder` (`[CONFIRM LEGAL ENTITY NAME]`), `bottomLinks: [Link]` |
 | `social` | `profiles: [{ platform: enum(linkedin, instagram, facebook, x, youtube, github, whatsapp), url }]` |
 | `seo` | `titleTemplate` (e.g. `%s · BitByte`), `defaultDescription`, `defaultOgImage: ImageRef`, `organization{ name, logo, sameAs[] }` for JSON-LD, `searchConsoleToken` |
-| `leadForm` | `budgetOptions: [String]` (`[CONFIRM BUDGET OPTIONS]`), `consentText` (`[CONFIRM CONSENT TEXT]`), `successMessage`, `notificationEmails: [String]` (**not public**) |
-| `integrations` | `analytics{ provider, measurementId }` (D-033), `turnstileSiteKey` (public key only). **Secrets never live in the DB.** |
+| `leadForm` | `budgetOptions: [String]` (`[CONFIRM BUDGET OPTIONS]`), `consentText` (`[CONFIRM CONSENT TEXT]`), `successMessage`, `notificationEmails: [String]` (max 5, **not public**, D-019) |
+| `careers` | `applicationMethod: 'instructions'|'email'|'external'|'form'` (default `instructions`; `form` rejected until enabled, D-031), `careersEmail` (`[CONFIRM CAREERS EMAIL]`), `externalUrl` |
+| `privacy` | `leadRetentionDays` (default **365**, 30–1095, never empty, D-032), `spamRetentionDays` (30) |
+| `integrations` | `turnstileSiteKey` (public key only, D-020). Analytics is deferred (D-033), so there are no analytics fields yet. **Secrets never live in the DB.** |
 
 Public projection strips `leadForm.notificationEmails` and anything else marked `private` in the schema.
 
@@ -216,7 +222,7 @@ Indexes: `{ slug: 1 }` unique · `{ status: 1 }` · `{ 'draft.slug': 1 }` sparse
 | `featured` | Boolean | eligible for "featured" grids |
 | `seo` | Seo | |
 
-Indexes: `{ slug: 1 }` unique · `{ status: 1, order: 1 }` · `{ mediaRefs: 1 }` · `{ 'entityRefs.id': 1 }`.
+Indexes: `{ slug: 1 }` unique · `{ status: 1 }` · `{ 'draft.slug': 1 }` sparse · `{ mediaRefs: 1 }` · `{ 'entityRefs.id': 1 }`. Service URLs are top-level `/<slug>` (D-038).
 
 ### 3.6 `projects`
 | Field | Type | Rules |
@@ -236,7 +242,7 @@ Indexes: `{ slug: 1 }` unique · `{ status: 1, order: 1 }` · `{ mediaRefs: 1 }`
 | `seo` | Seo | |
 
 Top level, outside draft/published: `permission: { confirmed: Boolean, confirmedAt: Date, note: String }`. **Publishing requires `permission.confirmed`** (client consent to show the work, CG-07b), recorded with date and note.
-Indexes: `{ slug: 1 }` unique · `{ status: 1, order: 1 }` · `{ 'published.category': 1, status: 1 }` · `{ 'published.featured': 1 }` · `{ mediaRefs: 1 }`.
+Indexes: `{ slug: 1 }` unique · `{ status: 1 }` · `{ 'published.category': 1, status: 1 }` · `{ 'published.featured': 1 }` · `{ mediaRefs: 1 }`.
 
 ### 3.7 `taxonomies`
 | Field | Type | Rules |
@@ -244,10 +250,9 @@ Indexes: `{ slug: 1 }` unique · `{ status: 1, order: 1 }` · `{ 'published.cate
 | `type` | enum | `projectCategory` \| `technology` |
 | `name` | String 1–60 | |
 | `slug` | String | unique per type |
-| `order` | Number | |
 
-Not draft-managed (labels only); changes apply immediately. Deletion is blocked while any service or project references it.
-Indexes: `{ type: 1, slug: 1 }` unique · `{ type: 1, order: 1 }`.
+Names are not draft-managed (labels only). The **order of project categories** is drafted and published through `orderings.projectCategories` (D-037). Deletion is blocked while any service or project references it.
+Indexes: `{ type: 1, slug: 1 }` unique.
 
 ### 3.8 `testimonials`
 | Field | Type | Rules |
@@ -261,7 +266,7 @@ Indexes: `{ type: 1, slug: 1 }` unique · `{ type: 1, order: 1 }`.
 | `featured` | Boolean | |
 
 Top level: `consent: { confirmed: Boolean, confirmedAt: Date, method: 'email'|'document'|'other', note }`. **Publishing requires `consent.confirmed`.** Third-party directory reviews must not be entered as testimonials (see `ADMIN_GUIDE.md`).
-Indexes: `{ status: 1, order: 1 }` · `{ 'published.featured': 1 }`.
+Indexes: `{ status: 1 }` · `{ 'published.featured': 1 }`.
 
 ### 3.9 `jobOpenings`
 | Field | Type | Rules |
@@ -283,10 +288,13 @@ Indexes: `{ slug: 1 }` unique · `{ status: 1, 'published.closesAt': 1 }`.
 ### 3.10 `media`
 | Field | Type | Rules |
 |---|---|---|
-| `driver` | String | `local` or the production provider (D-018) |
-| `storageKey` | String | random key (`yyyy/mm/<uuid>`), never the user's filename; **unique** |
-| `url` | String | public URL of the largest stored rendition |
-| `variants` | `[{ width, format: 'avif'|'webp'|'jpeg'|'png', url, bytes }]` | widths 480/768/1024/1440/1920 (≤ original) |
+| `driver` | String | `cloudinary` (production, D-018) or `local` (development) |
+| `storageKey` | String | Cloudinary `public_id` (`bitbyte/<env>/<uuid>`) or local key; never the user's filename; **unique** |
+| `version` | Number | Cloudinary asset version (cache-busting in delivery URLs) |
+| `format` | String | stored format after normalisation |
+| `url` | String | canonical delivery URL of the normalised original (secure HTTPS) |
+
+Responsive variants are **not stored**: delivery URLs are generated from `storageKey` + `version` with fixed transformations (`f_auto,q_auto,c_limit,w_{480|768|1024|1440|1920}`), capped at the original width. The `local` driver writes the same fixed widths to disk in development.
 | `originalFilename` | String | sanitised, display only |
 | `mimeType` | enum | `image/jpeg`, `image/png`, `image/webp`, `image/avif` (verified by magic bytes) |
 | `bytes`, `width`, `height` | Number | |
@@ -301,7 +309,7 @@ Indexes: `{ slug: 1 }` unique · `{ status: 1, 'published.closesAt': 1 }`.
 | timestamps | | |
 
 **No binary data in MongoDB.** Content stores `media` ObjectIds, never URLs. URLs, alt text and variants are resolved at read time, so replacing an image or fixing alt text updates every usage.
-**Safe deletion:** allowed only when `count(collection.find({ mediaRefs: id }))` is 0 across `pages`, `services`, `projects`, `testimonials`, `jobOpenings` and `settings`. `mediaRefs` covers drafts **and** published snapshots, plus `revisions` from the last 90 days, so a restore can't point to a deleted file.
+**Deletion** removes the Cloudinary asset (signed server-side API call) and then the document. It is allowed only when `count(collection.find({ mediaRefs: id }))` is 0 across `pages`, `services`, `projects`, `testimonials`, `jobOpenings` and `settings`. `mediaRefs` covers drafts **and** published snapshots, plus `revisions` from the last 90 days, so a restore can't point to a deleted file.
 Indexes: `{ storageKey: 1 }` unique · `{ checksum: 1 }` · `{ folder: 1, createdAt: -1 }` · text index on `alt`, `originalFilename`, `tags`.
 
 ### 3.11 `leads`
@@ -326,10 +334,11 @@ Fields mirror the indexed contact form (inventory P13a), so no business field is
 | `notification` | `{ sentAt: Date\|null, attempts: Number, lastError: String\|null }` | |
 | `ipHash` | String | salted SHA-256; raw IPs are not stored |
 | `userAgent` | String ≤ 300 | |
-| `spamSignals` | `{ honeypot: Boolean, fillTimeMs: Number, turnstile: 'pass'|'fail'|'skipped' }` | |
+| `spamSignals` | `{ honeypot: Boolean, fillTimeMs: Number, turnstile: 'pass'|'unverified' }` | `unverified` = Cloudflare unreachable (D-020); invalid tokens are rejected with 422 and never stored |
+| `expiresAt` | Date | `createdAt + settings.privacy.leadRetentionDays` (spam: 30 days); recomputed when the setting changes |
 | timestamps | | |
 
-Leads are **never** exposed on public routes. Retention: `[CONFIRM LEAD RETENTION PERIOD]` (D-032); a daily job removes or anonymises leads past retention. Erasure on request = hard delete + audit entry (without the PII).
+Leads are **never** exposed on public routes. **Retention (D-032):** configurable, **default 365 days**, never indefinite. A daily purge job hard-deletes leads whose `expiresAt` has passed and records one audit entry with counts only. Erasure on request = hard delete + audit entry without PII. Deleted data persists only in database backups until they expire (≤ 35 days, `DEPLOYMENT.md`). Index `{ expiresAt: 1 }` (used by the purge job; not a TTL index, so every deletion is audited).
 Indexes: `{ status: 1, createdAt: -1 }` · `{ email: 1 }` · `{ createdAt: -1 }`.
 
 ### 3.12 `redirects`
@@ -342,13 +351,13 @@ Indexes: `{ status: 1, createdAt: -1 }` · `{ email: 1 }` · `{ createdAt: -1 }`
 | `source` | enum | `legacy`, `slug-change`, `manual` |
 | `hits`, `lastHitAt` | Number, Date | incremented asynchronously |
 
-Seeded with the four known legacy redirects (`ROUTE_MAP.md` §3). The fromPath can't be a reserved prefix (`/api`, `/admin`).
+Starts **empty**: the indexed legacy URLs are preserved (D-038). Trailing-slash, case and host normalisation are handled in code, not stored here. The fromPath can't be a reserved prefix (`/api`, `/admin`).
 Indexes: `{ fromPath: 1 }` unique.
 
 ### 3.13 `revisions`
 | Field | Type |
 |---|---|
-| `entityType` | enum `settings`, `page`, `service`, `project`, `testimonial`, `job` |
+| `entityType` | enum `settings`, `page`, `service`, `project`, `testimonial`, `job`, `ordering` |
 | `entityId` | ObjectId |
 | `revision` | Number (the `publishedRevision`) |
 | `snapshot` | Object (the published content + slug) |
@@ -370,6 +379,23 @@ Retention: the latest **25 per entity** (pruned on publish). Indexes: `{ entityT
 
 Append-only (no update/delete API). Retention 24 months (TTL index on `at`, adjustable).
 Indexes: `{ at: -1 }` · `{ entityType: 1, entityId: 1, at: -1 }` · `{ actor: 1, at: -1 }` · TTL on `at`.
+
+---
+
+### 3.15 `orderings` (D-037)
+One publishable document per list, so **ordering changes are drafted, previewed and published** like content.
+
+| Field | Type | Rules |
+|---|---|---|
+| `key` | enum | `services`, `projects`, `testimonials`, `jobOpenings`, `projectCategories`; **unique** |
+| `draft` / `published` | `{ ids: [ObjectId] }` | ids of documents in that collection; duplicates rejected; max 500 |
+| status fields | as §2.1 | `revision` for concurrency; publishing writes a revision snapshot |
+
+- **Rendering:** public listings sort by `published.ids`. Published items missing from the list come after it, newest `firstPublishedAt` first. Previews use `draft.ids`.
+- **Creating** an entity appends its id to the draft order. **Deleting** one removes it from both lists.
+- **Section order** within a page lives in the page draft; **menu order** lives in the `navigation` settings draft. All three go live only on publish.
+
+Indexes: `{ key: 1 }` unique.
 
 ---
 
@@ -397,8 +423,11 @@ Each type has a zod schema (draft-lenient and publish-strict variants), an admin
 
 ---
 
-## 5. Reserved slugs and routes
-Custom page slugs may not be: `admin`, `api`, `services`, `portfolio`, `careers`, `contact`, `about`, `privacy-policy`, `terms`, `preview`, `assets`, `uploads`, `media`, `sitemap.xml`, `robots.txt`, `favicon.ico`, `404`, or any legacy path with an active redirect.
+## 5. Top-level slug namespace and reserved slugs (D-038)
+Service pages (`/<slug>`) and custom pages (`/<slug>`) share **one namespace**. A slug must be unique across `services` and `pages`, and may not be:
+`admin`, `api`, `services`, `portfolio`, `careers`, `contact`, `about`, `privacy-policy`, `terms`, `preview`, `assets`, `uploads`, `media`, `sitemap.xml`, `robots.txt`, `favicon.ico`, `404`, or any path with an active redirect.
+System pages own their fixed paths (`/`, `/about`, `/services`, `/portfolio`, `/careers`, `/contact`, `/privacy-policy`, `/terms`).
+The reserved list lives in `shared/` so client and server agree.
 
 ## 6. Relationship map
 
@@ -433,5 +462,5 @@ revisions *──1 (any publishable entity)
 
 ## 8. Migrations & seeding
 - **No legacy data migration** (D-002).
-- `npm run seed` is **idempotent**: it upserts system pages, the five known services (indexed snippet text, where it exists, is seeded together with a `[CONFIRM VERIFIED COPY]` token so it can't be published until checked against the source), the eight portfolio project names (as drafts with `[CONFIRM …]` placeholders), the three categories, settings with placeholders and the four legacy redirects. It **never deletes or overwrites** documents that already exist unless run with `--reset-dev`, which refuses to run when `NODE_ENV=production`.
+- `npm run seed` is **idempotent**: it upserts system pages, the five known services (indexed snippet text, where it exists, is seeded together with a `[CONFIRM VERIFIED COPY]` token so it can't be published until checked against the source), the eight portfolio project names (as drafts with `[CONFIRM …]` placeholders), the three categories, settings with placeholders and the `orderings` documents. It creates **no redirects**: legacy URLs are preserved (D-038). It **never deletes or overwrites** documents that already exist unless run with `--reset-dev`, which refuses to run when `NODE_ENV=production`.
 - Schema evolution happens through additive changes plus versioned, idempotent scripts in `server/src/cli/migrations/`.

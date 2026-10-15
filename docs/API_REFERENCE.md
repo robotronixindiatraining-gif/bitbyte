@@ -41,10 +41,14 @@
 | 409 | `INVALID_STATE` | e.g. deleting a published item, disabling yourself |
 | 413 | `PAYLOAD_TOO_LARGE` | Body > 200 KB or upload > limit |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Upload isn't an allowed image type (checked by magic bytes) |
+| 403 | `STEP_UP_REQUIRED` | Sensitive action without a password + TOTP re-authentication in the last 5 min (D-039) |
+| 403 | `MFA_ENROLLMENT_REQUIRED` | Restricted session (2FA not yet enrolled) calling anything except enrolment, change-password or logout |
 | 422 | `VALIDATION_ERROR` | Schema validation failed (`details[]` with paths) |
+| 422 | `CAPTCHA_FAILED` | Turnstile token missing, invalid, expired or already used (D-020) |
+| 401 | `INVALID_MFA_CODE` | Wrong TOTP or recovery code (generic; counts towards lockout) |
 | 429 | `RATE_LIMITED` | Limit hit; `Retry-After` header set. Also used for login lockout (generic). |
 | 500 | `INTERNAL_ERROR` | Unexpected; message is generic, details logged with `requestId` |
-| 503 | `SERVICE_UNAVAILABLE` | Database unavailable |
+| 503 | `SERVICE_UNAVAILABLE` | A required dependency is unavailable (e.g. database for readiness or writes) |
 
 ### 1.3 Validation
 - zod schemas from `shared/`, **strict**: unknown keys → 422. Applies to body, path params (ObjectId / slug pattern) and query (whitelisted filters only).
@@ -74,8 +78,10 @@ Every draft write includes `"revision": <number>` (the value last read). The ser
 | Authorisation | `requireSuperAdmin` middleware mounted on the **whole `/admin` router**. It checks session validity, `admin.status === 'active'` and `admin.role === 'super_admin'`. The frontend guard is UX only. |
 | Brute force | Login limiter: **5 attempts per 15 min per IP+email**, 20 per hour per IP. After 10 consecutive failures the account locks for 15 min, doubling up to 24 h. Response is always generic. |
 | Other limits | Public API 120 req/min/IP · lead submissions 5/hour/IP and 20/day/IP · admin API 600 req/5 min/session · uploads 30/10 min/session |
-| Two-factor | **Recommended, pending decision D-026:** TOTP for `super_admin` (endpoints marked ⓣ below). |
-| Password recovery | No public "forgot password" at launch (D-027). Recovery is by another super admin (`POST /admin/administrators/:id/reset-password`) or the server CLI (`npm run admin:reset-password`). |
+| Two-factor | **Mandatory TOTP** for every `super_admin` (D-026), plus 10 single-use recovery codes. A session is only fully active after the second factor; before enrolment it is **restricted** (D-039). |
+| Step-up | Sensitive actions (marked **⇑** below) require password + TOTP re-authentication within the last 5 minutes (`POST /auth/step-up`) |
+| Password & 2FA recovery | No e-mail reset links (D-027). Recovery goes through another super admin (with step-up) or the server CLI. Password and 2FA are never reset by one action; every reset is audited and notified (D-039). |
+| Bot protection | Public forms require a Turnstile token **verified server-side** (D-020) |
 | Audit | Every login (success and failure), logout, publish, delete, settings change, lead status change/export/erasure and admin change is written to `auditLogs`. |
 
 ---
@@ -84,8 +90,10 @@ Every draft write includes `"revision": <number>` (the value last read). The ser
 
 All responses project `published` content only. Unpublished, archived and expired items return **404**, indistinguishable from non-existent ones.
 
-### 3.1 `GET /api/v1/health`
-`200 { "data": { "status": "ok", "db": "up" } }` · `503` when the DB is down. No version or host information.
+### 3.1 Health (D-041)
+- `GET /api/v1/health` (**liveness**) → `200 { "data": { "status": "ok", "db": "up" | "connecting" | "down" | "disabled" } }` while the process serves requests.
+- `GET /api/v1/health/ready` (**readiness**) → `200 { "data": { "status": "ready", "db": "up" } }`, or `503 SERVICE_UNAVAILABLE` when the database isn't connected.
+- Neither exposes version, host or configuration information. Both are implemented in Stage 03.
 
 ### 3.2 `GET /api/v1/public/site`
 Global settings bundle for the layout: `general`, `contact`, `navigation`, `footer`, `social`, `seo` (public parts), `leadForm` (without `notificationEmails`), `integrations` (public keys only). Entity links are resolved to current paths.
@@ -94,7 +102,7 @@ Global settings bundle for the layout: `general`, `contact`, `navigation`, `foot
   "general": { "companyName": "…", "tagline": "…", "logo": { "url": "…", "alt": "…", "width": 240, "height": 48, "variants": [] } },
   "contact": { "addressLines": ["402, 4th floor, Atulya IT Park", "MPIDC, Khandwa Road"], "city": "Indore", "region": "M.P.", "postalCode": "452001",
                "phones": [{ "label": "Office", "number": "…", "whatsapp": false }], "emails": [{ "label": "General", "address": "…" }] },
-  "navigation": { "header": [{ "label": "Services", "href": "/services", "children": [{ "label": "Internet of Things", "href": "/services/internet-of-things" }] }],
+  "navigation": { "header": [{ "label": "Services", "href": "/services", "children": [{ "label": "Internet of Things", "href": "/internet-of-things" }] }],
                   "cta": { "label": "…", "href": "/contact" } },
   "footer": { "columns": [], "copyrightHolder": "…", "bottomLinks": [] },
   "social": { "profiles": [] },
@@ -122,7 +130,8 @@ Global settings bundle for the layout: `general`, `contact`, `navigation`, `foot
 Only `visible: true` sections are returned. Referenced entities are **embedded already resolved** (published ones only), so a page needs one request.
 
 ### 3.4 Services
-- `GET /api/v1/public/services` → `[{ slug, title, navLabel, summary, icon, featured }]`, ordered by `order`. Query: `featured=true`.
+- `GET /api/v1/public/resolve?path=/cms-development` → `{ kind: 'service' | 'page' | 'redirect' | 'not_found', slug, location? }`. Resolves a top-level path in the order reserved → service → custom page → redirect (D-038). The server uses the same resolver for the HTML response, so the client rarely needs this call.
+- `GET /api/v1/public/services` → `[{ slug, path, title, navLabel, summary, icon, featured }]`, in the **published** `orderings.services` order (D-037). `path` is the top-level URL (e.g. `/cms-development`). Query: `featured=true`.
 - `GET /api/v1/public/services/:slug` → full published service (offerings, industries, process, technologies `{ name, slug }`, faqs, relatedProjects as cards, cta, seo).
 
 ### 3.5 Projects & taxonomies
@@ -145,17 +154,19 @@ Only `visible: true` sections are returned. Referenced entities are **embedded a
   "fullName": "Asha Verma", "companyName": "Example Pvt Ltd", "companyLocation": "Indore",
   "email": "asha@example.com", "phone": "+91 98xxxxxxx", "budget": "<one of settings.leadForm.budgetOptions>",
   "message": "We need …", "service": "internet-of-things",
-  "consent": true, "sourcePath": "/services/internet-of-things",
+  "consent": true, "sourcePath": "/internet-of-things",
   "utm": { "source": "google" },
   "website": "",                 // honeypot — must be empty
   "formStartedAt": 1760520000000, // client timestamp; submissions faster than 3 s are flagged
-  "turnstileToken": null          // required only when Turnstile is enabled (D-020)
+  "turnstileToken": "<token from the Turnstile widget>"  // required; verified server-side (D-020)
 }
 // 201
 { "data": { "received": true, "message": "<settings.leadForm.successMessage>" } }
 ```
 - Validation errors → 422 with field paths (shown inline by the form).
-- Honeypot filled or Turnstile failed → **201 with the same body** (doesn't teach bots), stored as `status: 'spam'` for review in the "Possible spam" view.
+- **Turnstile** (D-020): the server calls Cloudflare `siteverify` (secret, `remoteip`, `idempotency_key`) and checks `success`, `hostname` and `action: "lead"`. Missing/invalid/expired/reused token → `422 CAPTCHA_FAILED` (the widget resets). Cloudflare unreachable → the lead is stored with `spamSignals.turnstile: "unverified"` and listed under "Possible spam".
+- Honeypot filled → **201 with the same body** (doesn't teach bots), stored as `status: 'spam'` (30-day retention).
+- Each lead gets `expiresAt` from the retention setting (default 365 days, D-032).
 - The consent text shown is copied server-side from published settings, not trusted from the client.
 - No lead data is ever returned by a public endpoint.
 
@@ -168,11 +179,15 @@ Only `visible: true` sections are returned. Referenced entities are **embedded a
 
 | Method & path | Auth | Purpose |
 |---|---|---|
-| `POST /api/v1/auth/login` | — (rate-limited) | `{ email, password }` → sets cookie, `200 { data: { admin: { id, name, email, role, mustChangePassword } } }`. ⓣ If 2FA is enabled: `200 { data: { twoFactorRequired: true, challengeId } }` |
-| `POST /api/v1/auth/login/2fa` ⓣ | challenge | `{ challengeId, code }` → completes login |
+| `POST /api/v1/auth/login` | — (rate-limited) | `{ email, password }`. Never creates a full session. Enrolled admin → cookie for an `mfa_pending` session (5 min, single use) and `200 { data: { stage: "mfa_pending" } }`. Not yet enrolled → cookie for a **restricted** `enrollment` session and `200 { data: { stage: "enrollment" } }` |
+| `POST /api/v1/auth/login/verify` | `mfa_pending` session | `{ code }` (TOTP) **or** `{ recoveryCode }` → rotates the cookie to an `active` session → `200 { data: { stage: "active", admin: { id, name, email, role, mustChangePassword } } }`. Max 5 attempts; failures count towards lockout; using a recovery code is audited and e-mailed |
+| `POST /api/v1/auth/2fa/enroll/start` | `enrollment` or `active` session | Returns `{ otpauthUri, qrCodeDataUrl }` for a new pending secret (not yet active) |
+| `POST /api/v1/auth/2fa/enroll/confirm` | `enrollment` session | `{ code }` → activates 2FA, upgrades to an `active` session, returns `{ recoveryCodes: [10 codes] }` **once** |
+| `POST /api/v1/auth/step-up` | `active` session | `{ password, code }` → sets `stepUpAt` (valid 5 min) |
+| `POST /api/v1/auth/2fa/recovery-codes` **⇑** | `active` | Regenerates the codes (old ones invalidated), returns the new codes once |
 | `POST /api/v1/auth/logout` | session | Revokes the current session, clears the cookie → `204` |
 | `GET /api/v1/auth/session` | session | Current admin or `401` |
-| `POST /api/v1/auth/change-password` | session | `{ currentPassword, newPassword }` → revokes other sessions → `204` |
+| `POST /api/v1/auth/change-password` | `enrollment` or `active` (**⇑** when active) | `{ currentPassword, newPassword }` → revokes other sessions → `204` |
 | `GET /api/v1/auth/sessions` | session | The admin's active sessions (created, last seen, user agent) |
 | `DELETE /api/v1/auth/sessions/:id` | session | Revoke one session ("sign out other device") |
 
@@ -196,7 +211,6 @@ Applies to `pages`, `services`, `projects`, `testimonials` and `jobs` (resource 
 | `POST /admin/{res}/:id/discard-draft` | `{ revision }` | Reset `draft` to `published` |
 | `GET /admin/{res}/:id/revisions` | — | `[{ revision, publishedAt, publishedBy, note }]` |
 | `POST /admin/{res}/:id/revisions/:rev/restore` | `{ revision }` | Copies the snapshot into the draft (not published) |
-| `PATCH /admin/{res}/order` | `{ ids: [id…] }` | Reorders the listing (applies immediately, D-025) |
 | `DELETE /admin/{res}/:id` | — | Only `draft`/`archived` and unreferenced → `204` · 409 `IN_USE`/`INVALID_STATE` |
 
 Extra fields per resource:
@@ -220,17 +234,29 @@ Example publish failure:
 
 Preview responses send `X-Robots-Tag: noindex` and `Cache-Control: no-store`.
 
+### 5.2a Orderings (D-037)
+Ordering changes are drafted, previewed and published; they never go live on save.
+
+| Method & path | Body | Result |
+|---|---|---|
+| `GET /admin/orderings/:key` | — | `key` ∈ `services`, `projects`, `testimonials`, `jobOpenings`, `projectCategories` → `{ draft: { ids }, published: { ids }, revision, hasUnpublishedChanges, items: [{ id, title, status }] }` |
+| `PUT /admin/orderings/:key/draft` | `{ revision, ids: [id…] }` | Saves the draft order from drag-and-drop or move up/down (ids must belong to the collection; no duplicates) |
+| `POST /admin/orderings/:key/publish` | `{ revision }` | Makes the order live |
+| `POST /admin/orderings/:key/discard-draft` | `{ revision }` | Resets the draft to the live order |
+
+Preview endpoints (§5.2) render listings in the **draft** order.
+
 ### 5.3 Settings
 | Method & path | Body |
 |---|---|
 | `GET /admin/settings` | All keys with status fields |
-| `GET /admin/settings/:key` | One key (`general`, `contact`, `navigation`, `footer`, `social`, `seo`, `leadForm`, `integrations`) |
+| `GET /admin/settings/:key` | One key (`general`, `contact`, `navigation`, `footer`, `social`, `seo`, `leadForm`, `careers`, `privacy`, `integrations`). Publishing `privacy` (retention) requires **⇑** |
 | `PUT /admin/settings/:key/draft` | `{ revision, draft }` |
 | `POST /admin/settings/:key/publish` | `{ revision }` |
 | `GET /admin/settings/:key/revisions` · `POST …/revisions/:rev/restore` | |
 
 ### 5.4 Taxonomies
-`GET /admin/taxonomies?type=` · `POST /admin/taxonomies` `{ type, name, slug? }` · `PATCH /admin/taxonomies/:id` `{ name, slug }` · `PATCH /admin/taxonomies/order` · `DELETE /admin/taxonomies/:id` (409 `IN_USE`).
+`GET /admin/taxonomies?type=` · `POST /admin/taxonomies` `{ type, name, slug? }` · `PATCH /admin/taxonomies/:id` `{ name, slug }` · (category order via `/admin/orderings/projectCategories`) · `DELETE /admin/taxonomies/:id` (409 `IN_USE`).
 
 ### 5.5 Media
 | Method & path | Notes |
@@ -249,8 +275,9 @@ Preview responses send `X-Robots-Tag: noindex` and `Cache-Control: no-store`.
 | `PATCH /admin/leads/:id` | `{ status }` (enum from `DATABASE_SCHEMA.md` §3.11) |
 | `POST /admin/leads/:id/notes` | `{ text }` |
 | `POST /admin/leads/:id/resend-notification` | Retries the e-mail |
-| `GET /admin/leads/export.csv?…filters` | CSV (formula-injection-safe: cells starting with `= + - @` are prefixed with `'`); audited |
-| `DELETE /admin/leads/:id` | Erasure; requires `{ "confirm": "DELETE" }`; audited without PII |
+| `GET /admin/leads/export.csv?…filters` **⇑** | CSV (formula-injection-safe: cells starting with `= + - @` are prefixed with `'`); audited |
+| `DELETE /admin/leads/:id` **⇑** | Erasure; requires `{ "confirm": "DELETE" }`; audited without PII |
+| (scheduled) | A daily purge deletes leads past `expiresAt` (D-032); one audit entry with counts |
 
 ### 5.7 Redirects
 `GET /admin/redirects` · `POST /admin/redirects` `{ fromPath, toPath, statusCode }` · `PATCH /admin/redirects/:id` · `DELETE /admin/redirects/:id`. Validation rejects loops, chains, reserved prefixes and duplicate `fromPath`.
@@ -259,11 +286,12 @@ Preview responses send `X-Robots-Tag: noindex` and `Cache-Control: no-store`.
 | Method & path | Notes |
 |---|---|
 | `GET /admin/administrators` | `[{ id, name, email, status, lastLoginAt, twoFactorEnabled }]` |
-| `POST /admin/administrators` | `{ name, email, temporaryPassword }` → `mustChangePassword: true`. Role is always `super_admin` and isn't accepted from input. |
-| `PATCH /admin/administrators/:id` | `{ name, status }`. Can't disable self or the last active admin. |
-| `POST /admin/administrators/:id/reset-password` | `{ temporaryPassword }` → revokes that admin's sessions |
+| `POST /admin/administrators` **⇑** | `{ name, email, temporaryPassword }` → `mustChangePassword: true`, must enrol 2FA at first sign-in. Role is always `super_admin` and isn't accepted from input. |
+| `PATCH /admin/administrators/:id` **⇑** | `{ name, status }`. Can't disable self or the last active admin. |
+| `DELETE /admin/administrators/:id` **⇑** | Can't delete self or the last active admin |
+| `POST /admin/administrators/:id/reset-password` **⇑** | `{ temporaryPassword }` → revokes that admin's sessions; **2FA unchanged**; audited + notified (D-039) |
+| `POST /admin/administrators/:id/reset-2fa` **⇑** | Clears the target's 2FA, revokes its sessions, forces re-enrolment; **password unchanged**; not allowed on yourself; audited + notified (D-039) |
 | `POST /admin/administrators/:id/revoke-sessions` | |
-| ⓣ `POST /admin/account/2fa/setup` · `/enable` · `/disable` | Only if D-026 is approved |
 
 ### 5.9 Dashboard & audit
 - `GET /admin/dashboard` → `{ leads: { new, last30Days }, unpublishedChanges: [ … ], placeholders: [{ kind, id, title, count }], brokenReferences: [ … ], recentActivity: [ … ] }`.

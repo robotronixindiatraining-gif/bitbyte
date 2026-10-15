@@ -1,0 +1,92 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens — docs/DESIGN_SYSTEM.md.
+ * ⚠ PROVISIONAL PALETTE (D-024): to be re-derived from the real logo before launch.
+ * Tailwind's default colours are cleared so components can only use project tokens.
+ * Fonts are self-hosted in Stage 06 (D-023); until then the system fallbacks apply.
+ */
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  --color-navy-950: #070f24;
+  --color-navy-900: #0b1a3a;
+  --color-navy-800: #12275a;
+  --color-navy-700: #1c3a7a;
+
+  --color-accent-700: #1844b8;
+  --color-accent-600: #1f55e0;
+  --color-accent-500: #2f6bff;
+  --color-accent-400: #5b8cff;
+  --color-accent-300: #8fb0ff;
+  --color-accent-100: #e6eeff;
+
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f7f8fb;
+  --color-neutral-100: #eef1f6;
+  --color-neutral-200: #dde3ec;
+  --color-neutral-300: #c3cbd8;
+  --color-neutral-400: #97a1b5;
+  --color-neutral-500: #64708a;
+  --color-neutral-600: #4b5670;
+  --color-neutral-700: #374156;
+  --color-neutral-900: #111827;
+
+  --color-success-700: #0e7a3d;
+  --color-warning-700: #8a5a00;
+  --color-danger-600: #c42b2b;
+
+  --font-display:
+    'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    sans-serif;
+  --font-sans:
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --shadow-sm: 0 1px 2px rgb(7 15 36 / 0.06);
+  --shadow-md: 0 2px 4px rgb(7 15 36 / 0.04), 0 8px 24px -8px rgb(7 15 36 / 0.12);
+  --shadow-lg: 0 24px 48px -16px rgb(7 15 36 / 0.2);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-neutral-0 font-sans text-neutral-700 antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display text-neutral-900;
+    text-wrap: balance;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent-600);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

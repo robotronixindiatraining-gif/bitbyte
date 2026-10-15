@@ -108,3 +108,62 @@ The owner approved Stage 01 as a **partial** deliverable: the original website w
 | Invented content | None. Schema fields for leads mirror the indexed form; seeds use `[CONFIRM …]` placeholders; no metrics, prices, testimonials or client facts created |
 | Implementation | None. No code, no dependencies installed, no database touched |
 | External access | Not retried (per owner instruction) |
+
+---
+
+## Stage 02 refinements (2026-10-15)
+The owner approved Stage 02 with 12 required refinements. They were applied to the documentation before any code:
+
+| Refinement | Documented in |
+|---|---|
+| Cloudinary for media (plan checked against Cloudinary's billing docs: Free = 25 monthly credits) | D-018; `DATABASE_SCHEMA.md` `media`; `ARCHITECTURE.md` §8 |
+| Resend for notifications behind a replaceable adapter (free tier ~3,000/month, 100/day per third-party sources; verify) | D-019 |
+| Cloudflare Turnstile verified server-side (siteverify; single-use tokens, 300 s validity) | D-020; `API_REFERENCE.md` §3.8 |
+| Single domain + managed MongoDB; hosting documented, not provisioned | D-021; new `DEPLOYMENT.md` |
+| Logging/correlation first, external tracking optional | D-022 |
+| Mandatory TOTP + recovery codes; no auth bypass via resets | D-026, D-027, D-039; `API_REFERENCE.md` §2, §4, §5.8; `ADMIN_GUIDE.md` §1, §12 |
+| Canonical `www` provisional; verify DNS first | D-028; `ROUTE_MAP.md` §1; `DEPLOYMENT.md` §3 |
+| Configurable careers application workflow | D-031; `settings.careers` |
+| Configurable lead retention (default 365 days), secure deletion | D-032; `leads.expiresAt`; `settings.privacy` |
+| Analytics deferred | D-033 |
+| Legacy top-level URLs preserved (`/cms-development`, `/internet-of-things`, `/digital-marketing`) | D-038; `ROUTE_MAP.md`; `CONTENT_INVENTORY.md` proposed routes |
+| Drag-and-drop ordering is drafted, previewed and published | D-037; new `orderings` collection; `API_REFERENCE.md` §5.2a |
+
+Superseded Stage 02 items are listed at the end of `DECISIONS.md`.
+
+---
+
+## Stage 03: Project foundation (2026-10-15)
+
+### 1. Inspection before changes
+| Check | Result |
+|---|---|
+| Branch / status | `claude/amazing-sagan-mwrdn8`, up to date with origin, clean tree, no stashes |
+| History | `e3a0499` → `3de0c29` (Stage 00) → `df1073b` (Stage 01) → `8b3fa9f` (Stage 02) |
+| Tooling | Node v22.22.0, npm 10.9.4; Docker present; no MongoDB |
+| Existing code | None (documentation only); nothing to preserve beyond `docs/` and `README.md` |
+
+### 2. Compatibility research (npm registry)
+- ESLint 10 is incompatible with `eslint-plugin-react` / `eslint-plugin-jsx-a11y` (peer ≤ 9), so **ESLint 9.39.5** was chosen.
+- jsdom 30 requires Node ≥ 22.22.2 (the environment has 22.22.0), so **jsdom 29.1.1** was chosen.
+- React Router 8 requires Node ≥ 22.22.0, which is satisfied. Vite 8 / Vitest 5 / plugin-react 6 / @tailwindcss/vite 4.3 peer ranges are compatible.
+
+### 3. Implementation
+Workspaces `shared/`, `server/`, `client/`; root configuration; scripts; CI. Details are in `ARCHITECTURE.md` §12 and the package list in `PROGRESS.md`.
+
+### 4. Issues found and fixed during verification
+| Issue | Fix |
+|---|---|
+| A request-ID test used a newline header, which Node's HTTP client refuses to send | Test uses a sendable but unsafe value instead |
+| Prettier needed two passes on one file (member-chain formatting) | Re-ran; now stable |
+| Client bundle 129.5 KB gzip (> 120 KB budget) because importing `@bitbyte/shared` pulled in zod | `"sideEffects": false` on `@bitbyte/shared` → 110.4 KB |
+| `node --watch --env-file-if-exists=.env` **crashed** when `server/.env` was missing (watch mode tries to watch the absent file) | The server loads `server/.env` itself via `process.loadEnvFile()` when present (`src/config/envFile.js`, with tests); `SKIP_ENV_FILE=true` keeps the smoke test hermetic |
+| An expected readiness 503 was logged at ERROR with a stack | Known `AppError`s log at warn/info; only unexpected errors log at error and reach the optional error-tracking hook (tested) |
+| "database disconnected" was logged during failed initial connection attempts | Only logged after a successful connection |
+| A `pkill -f` in a manual verification command matched its own shell | Verification re-run without it (no project impact) |
+
+### 5. Final verification
+`npm run check` → no-TS ✅ · lint ✅ · format ✅ · tests 41/41 ✅ · build ✅ · smoke 10/10 ✅. `npm run dev` manually verified with and without `server/.env` (temporary copy removed afterwards). Full results are in `PROGRESS.md`.
+
+### 6. Not done (by scope)
+Public website, homepage design, MongoDB schemas/migrations, admin authentication, CMS, production infrastructure and external service provisioning.
