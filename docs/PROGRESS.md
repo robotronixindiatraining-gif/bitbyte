@@ -80,7 +80,7 @@ Status of every stage. Updated at the end of each working session and each stage
 | 8 | Development commands documented in `README.md` | ✅ |
 | 9 | Smoke test: client builds and the production server starts | ✅ `npm run smoke` |
 | 10 | No TypeScript | ✅ `npm run check:no-ts` |
-| 11 | CI | ✅ Workflow added; **first run happens on push**, not yet observed |
+| 11 | CI | ✅ GitHub Actions run #1 on commit `e747ad9` (Node from `.nvmrc`, `npm ci`, `npm run check`, `npm audit --omit=dev --audit-level=high`) **succeeded** |
 
 ### Verification results (2026-10-15, Node 22.22.0, npm 10.9.4)
 | Command | Result |
@@ -108,7 +108,6 @@ Status of every stage. Updated at the end of each working session and each stage
 No packages were removed or upgraded (none existed). Version choices and the deliberate ESLint 9 / jsdom 29 pins are explained in `DECISIONS.md` D-040.
 
 ### Known issues and limitations
-- **CI not yet observed:** the workflow runs on the next push; its result should be checked.
 - **No MongoDB in the build environment:** the database connection was exercised only for the failure and retry path (unreachable URI). A successful connection is first tested in Stage 04 (`mongodb-memory-server`, then a local MongoDB).
 - **Bundle headroom:** the shell already uses 110.4 KB of the 120 KB gzip budget (React + router + query). Route-level code splitting is a Stage 06 acceptance criterion.
 - **Fonts not installed yet:** the tokens reference Plus Jakarta Sans, Inter and JetBrains Mono, which arrive in Stage 06; system fonts are used until then.

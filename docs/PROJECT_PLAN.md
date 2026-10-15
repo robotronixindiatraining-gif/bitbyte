@@ -46,7 +46,7 @@
 - **Deliverables:** running skeleton, CI green, README setup section.
 - **Depends on:** Stage 02 approval.
 - **Tests:** health endpoint integration test; error-handler unit tests; client renders the shell; CI pipeline.
-- **Acceptance:** on a clean machine, `npm ci && npm run dev` works; `npm run check` (no-TS guard, lint, format, tests, build, smoke) passes locally and in CI; no `.ts`/`.tsx` files; no secrets in Git. **Status:** met locally (`PROGRESS.md`); the first CI run happens on push.
+- **Acceptance:** on a clean machine, `npm ci && npm run dev` works; `npm run check` (no-TS guard, lint, format, tests, build, smoke) passes locally and in CI; no `.ts`/`.tsx` files; no secrets in Git. **Status:** met locally and in CI (GitHub Actions run #1 green).
 
 **04: Backend core & authentication**
 - **Scope:** all Mongoose models (`DATABASE_SCHEMA.md`, incl. `orderings`); shared zod schemas and section registry; sessions with `mfa_pending`/`enrollment`/`active` stages, argon2id, login/logout/change-password, **mandatory TOTP + recovery codes, step-up re-authentication and the reset rules of D-039**, lockout, rate limits, origin check, `requireSuperAdmin`; audit log; CLI `admin:create` / `admin:reset-password` / `admin:reset-2fa`; idempotent `seed` (placeholders; no legacy redirects needed, D-038); `mongodb-memory-server` for integration tests.
