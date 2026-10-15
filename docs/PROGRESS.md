@@ -132,7 +132,7 @@ No packages were removed or upgraded (none existed). Version choices and the del
 | 11 | Audit log with actor, action, target, time, request ID; no secrets; fail-closed | ✅ (`test/admins.test.js`) |
 | 12 | Idempotent placeholder seed that never overwrites admin edits or accounts | ✅ (`test/seed.test.js`) |
 | 13 | Public routes expose only published content | ✅ (services endpoints; the rest arrive in Stage 05) |
-| 14 | Docs updated; full pipeline green | ✅ locally; CI result on push recorded below |
+| 14 | Docs updated; full pipeline green | ✅ locally and in CI: GitHub Actions run on `06456b4` succeeded. CI downloaded and cached MongoDB 8.0.34 for `mongodb-memory-server`; `npm run check` took 43 s and the production `npm audit` passed |
 
 ### Verification results (2026-10-15, Node 22.22.0, npm 10.9.4, MongoDB 8.0.34)
 | Check | Result |
