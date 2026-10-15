@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Stage 02 specification. Proposed contract, awaiting approval. Implemented in Stages 04–05. A contract test will keep this file and the routes in sync. |
+| **Status** | Approved contract. **Implemented in Stage 04:** health, all `/auth` endpoints, `/admin/administrators*`, `/admin/audit-logs`, `GET /public/services` and `GET /public/services/:slug` (marked ✅). Everything else follows in Stage 05. The admin route table (`server/src/routes/admin/index.js`) is what the security tests iterate over. |
 | **Base URL** | `/api/v1` (same origin as the website) |
 | **Format** | JSON (`Content-Type: application/json`), except media upload (`multipart/form-data`) and lead export (`text/csv`) |
 
@@ -34,6 +34,7 @@
 | 404 | `NOT_FOUND` | Unknown resource, or an unpublished one on public routes |
 | 409 | `EDIT_CONFLICT` | `revision` mismatch (someone saved first) |
 | 409 | `SLUG_TAKEN` | Slug already used or reserved |
+| 409 | `EMAIL_TAKEN` | An administrator with this e-mail already exists |
 | 409 | `IN_USE` | Delete blocked by references (`details` lists them) |
 | 409 | `PLACEHOLDERS_PRESENT` | Publish blocked by `[CONFIRM …]` tokens (`details` lists field paths) |
 | 409 | `REFERENCE_NOT_PUBLISHED` | Publish blocked by unpublished references |
@@ -46,9 +47,9 @@
 | 422 | `VALIDATION_ERROR` | Schema validation failed (`details[]` with paths) |
 | 422 | `CAPTCHA_FAILED` | Turnstile token missing, invalid, expired or already used (D-020) |
 | 401 | `INVALID_MFA_CODE` | Wrong TOTP or recovery code (generic; counts towards lockout) |
-| 429 | `RATE_LIMITED` | Limit hit; `Retry-After` header set. Also used for login lockout (generic). |
+| 429 | `RATE_LIMITED` | Request-rate limit hit; `RateLimit`/`Retry-After` headers set. (A **locked account** answers with the generic `401 INVALID_CREDENTIALS` instead, so lockout never reveals that an account exists.) |
 | 500 | `INTERNAL_ERROR` | Unexpected; message is generic, details logged with `requestId` |
-| 503 | `SERVICE_UNAVAILABLE` | A required dependency is unavailable (e.g. database for readiness or writes) |
+| 503 | `SERVICE_UNAVAILABLE` | A required dependency is unavailable (database down, audit log not writable, authentication secrets not configured) |
 
 ### 1.3 Validation
 - zod schemas from `shared/`, **strict**: unknown keys → 422. Applies to body, path params (ObjectId / slug pattern) and query (whitelisted filters only).
@@ -76,7 +77,7 @@ Every draft write includes `"revision": <number>` (the value last read). The ser
 | Session | 256-bit random token in cookie `__Host-bb_sid` (production): `HttpOnly; Secure; SameSite=Strict; Path=/`. Server stores only the SHA-256 hash. **Idle timeout 2 h, absolute 12 h.** A new token is issued on login; all sessions are revoked on password change or disable. |
 | CSRF | `SameSite=Strict` + **Origin/Referer allowlist** on every non-GET request to `/auth` and `/admin` + JSON-only bodies + required `X-Requested-With: fetch` header (forces a CORS preflight for cross-site attempts). |
 | Authorisation | `requireSuperAdmin` middleware mounted on the **whole `/admin` router**. It checks session validity, `admin.status === 'active'` and `admin.role === 'super_admin'`. The frontend guard is UX only. |
-| Brute force | Login limiter: **5 attempts per 15 min per IP+email**, 20 per hour per IP. After 10 consecutive failures the account locks for 15 min, doubling up to 24 h. Response is always generic. |
+| Brute force | Login limiter: **5 attempts per 15 min per IP+email**, 20 per hour per IP. Second-factor endpoints: 30 per 15 min per IP, plus max 5 codes per pending sign-in. After 10 consecutive failures (password or code) the account locks for 15 min, doubling up to 24 h. Responses are always generic, and unknown e-mails cost the same argon2 work as real ones. |
 | Other limits | Public API 120 req/min/IP · lead submissions 5/hour/IP and 20/day/IP · admin API 600 req/5 min/session · uploads 30/10 min/session |
 | Two-factor | **Mandatory TOTP** for every `super_admin` (D-026), plus 10 single-use recovery codes. A session is only fully active after the second factor; before enrolment it is **restricted** (D-039). |
 | Step-up | Sensitive actions (marked **⇑** below) require password + TOTP re-authentication within the last 5 minutes (`POST /auth/step-up`) |
@@ -91,8 +92,8 @@ Every draft write includes `"revision": <number>` (the value last read). The ser
 All responses project `published` content only. Unpublished, archived and expired items return **404**, indistinguishable from non-existent ones.
 
 ### 3.1 Health (D-041)
-- `GET /api/v1/health` (**liveness**) → `200 { "data": { "status": "ok", "db": "up" | "connecting" | "down" | "disabled" } }` while the process serves requests.
-- `GET /api/v1/health/ready` (**readiness**) → `200 { "data": { "status": "ready", "db": "up" } }`, or `503 SERVICE_UNAVAILABLE` when the database isn't connected.
+- ✅ `GET /api/v1/health` (**liveness**) → `200 { "data": { "status": "ok", "db": "up" | "connecting" | "down" | "disabled" } }` while the process serves requests.
+- ✅ `GET /api/v1/health/ready` (**readiness**) → `200 { "data": { "status": "ready", "db": "up" } }`, or `503 SERVICE_UNAVAILABLE` when the database isn't connected.
 - Neither exposes version, host or configuration information. Both are implemented in Stage 03.
 
 ### 3.2 `GET /api/v1/public/site`
@@ -131,8 +132,8 @@ Only `visible: true` sections are returned. Referenced entities are **embedded a
 
 ### 3.4 Services
 - `GET /api/v1/public/resolve?path=/cms-development` → `{ kind: 'service' | 'page' | 'redirect' | 'not_found', slug, location? }`. Resolves a top-level path in the order reserved → service → custom page → redirect (D-038). The server uses the same resolver for the HTML response, so the client rarely needs this call.
-- `GET /api/v1/public/services` → `[{ slug, path, title, navLabel, summary, icon, featured }]`, in the **published** `orderings.services` order (D-037). `path` is the top-level URL (e.g. `/cms-development`). Query: `featured=true`.
-- `GET /api/v1/public/services/:slug` → full published service (offerings, industries, process, technologies `{ name, slug }`, faqs, relatedProjects as cards, cta, seo).
+- ✅ `GET /api/v1/public/services` → `[{ slug, path, title, navLabel, summary, icon, featured }]`, in the **published** `orderings.services` order (D-037). `path` is the top-level URL (e.g. `/cms-development`). Query: `featured=true`.
+- ✅ `GET /api/v1/public/services/:slug` → the published service. Stage 04 returns the stored published fields with `slug` and `path`; resolving technologies `{ name, slug }` and relatedProjects into cards is added in Stage 05.
 
 ### 3.5 Projects & taxonomies
 - `GET /api/v1/public/projects?category=<slug>&technology=<slug>&featured=true&page=&limit=` → cards `{ slug, title, summary, category{ name, slug }, technologies[], cover{ url, alt, width, height, variants, dominantColor }, year }`.
@@ -179,17 +180,17 @@ Only `visible: true` sections are returned. Referenced entities are **embedded a
 
 | Method & path | Auth | Purpose |
 |---|---|---|
-| `POST /api/v1/auth/login` | — (rate-limited) | `{ email, password }`. Never creates a full session. Enrolled admin → cookie for an `mfa_pending` session (5 min, single use) and `200 { data: { stage: "mfa_pending" } }`. Not yet enrolled → cookie for a **restricted** `enrollment` session and `200 { data: { stage: "enrollment" } }` |
-| `POST /api/v1/auth/login/verify` | `mfa_pending` session | `{ code }` (TOTP) **or** `{ recoveryCode }` → rotates the cookie to an `active` session → `200 { data: { stage: "active", admin: { id, name, email, role, mustChangePassword } } }`. Max 5 attempts; failures count towards lockout; using a recovery code is audited and e-mailed |
-| `POST /api/v1/auth/2fa/enroll/start` | `enrollment` or `active` session | Returns `{ otpauthUri, qrCodeDataUrl }` for a new pending secret (not yet active) |
-| `POST /api/v1/auth/2fa/enroll/confirm` | `enrollment` session | `{ code }` → activates 2FA, upgrades to an `active` session, returns `{ recoveryCodes: [10 codes] }` **once** |
-| `POST /api/v1/auth/step-up` | `active` session | `{ password, code }` → sets `stepUpAt` (valid 5 min) |
-| `POST /api/v1/auth/2fa/recovery-codes` **⇑** | `active` | Regenerates the codes (old ones invalidated), returns the new codes once |
-| `POST /api/v1/auth/logout` | session | Revokes the current session, clears the cookie → `204` |
-| `GET /api/v1/auth/session` | session | Current admin or `401` |
-| `POST /api/v1/auth/change-password` | `enrollment` or `active` (**⇑** when active) | `{ currentPassword, newPassword }` → revokes other sessions → `204` |
-| `GET /api/v1/auth/sessions` | session | The admin's active sessions (created, last seen, user agent) |
-| `DELETE /api/v1/auth/sessions/:id` | session | Revoke one session ("sign out other device") |
+| ✅ `POST /api/v1/auth/login` | — (rate-limited) | `{ email, password }`. Never creates a full session. Enrolled admin → cookie for an `mfa_pending` session (5 min, single use) and `200 { data: { stage: "mfa_pending" } }`. Not yet enrolled → cookie for a **restricted** `enrollment` session and `200 { data: { stage: "enrollment" } }` |
+| ✅ `POST /api/v1/auth/login/verify` | `mfa_pending` session | `{ code }` (TOTP) **or** `{ recoveryCode }` → rotates the cookie to an `active` session → `200 { data: { stage: "active", admin: { id, name, email, role, mustChangePassword } } }`. Max 5 attempts; failures count towards lockout; using a recovery code is audited and e-mailed |
+| ✅ `POST /api/v1/auth/2fa/enroll/start` | `enrollment`, or `active` + **⇑** for re-enrolment | Returns `{ otpauthUri, manualEntryKey, qrCodeDataUrl }` for a new pending secret (inactive until confirmed; expires after 15 min). `Cache-Control: no-store` |
+| ✅ `POST /api/v1/auth/2fa/enroll/confirm` | `enrollment` or `active` | `{ code }` → activates 2FA, ends **all** of the admin's sessions and issues one new `active` session, returns `{ stage: "active", recoveryCodes: [10 codes] }` **once** |
+| ✅ `POST /api/v1/auth/step-up` | `active` session | `{ password, code }` → sets `stepUpAt` (valid 5 min) |
+| ✅ `POST /api/v1/auth/2fa/recovery-codes` **⇑** | `active` | Regenerates the codes (old ones invalidated), returns the new codes once |
+| ✅ `POST /api/v1/auth/logout` | any or none | Revokes the current session, clears the cookie → `204` |
+| ✅ `GET /api/v1/auth/session` | any stage | `{ stage, admin, stepUpValidUntil, expiresAt }` or `401` |
+| ✅ `POST /api/v1/auth/change-password` | `active` (also while `mustChangePassword`) | `{ currentPassword, newPassword, code }`: the current password **and** a current TOTP code are required (inline re-authentication). Ends all sessions, sets a new session cookie → `204`. New admins enrol 2FA first, then change the temporary password |
+| ✅ `GET /api/v1/auth/sessions` | `active` | The admin's active sessions (created, last seen, user agent) |
+| ✅ `DELETE /api/v1/auth/sessions/:id` | `active` | Revoke one session ("sign out other device") |
 
 Login example error: `401 { "error": { "code": "INVALID_CREDENTIALS", "message": "Email or password is incorrect." } }`.
 
@@ -285,17 +286,17 @@ Preview endpoints (§5.2) render listings in the **draft** order.
 ### 5.8 Administrators (all `super_admin`; D-004)
 | Method & path | Notes |
 |---|---|
-| `GET /admin/administrators` | `[{ id, name, email, status, lastLoginAt, twoFactorEnabled }]` |
-| `POST /admin/administrators` **⇑** | `{ name, email, temporaryPassword }` → `mustChangePassword: true`, must enrol 2FA at first sign-in. Role is always `super_admin` and isn't accepted from input. |
-| `PATCH /admin/administrators/:id` **⇑** | `{ name, status }`. Can't disable self or the last active admin. |
-| `DELETE /admin/administrators/:id` **⇑** | Can't delete self or the last active admin |
-| `POST /admin/administrators/:id/reset-password` **⇑** | `{ temporaryPassword }` → revokes that admin's sessions; **2FA unchanged**; audited + notified (D-039) |
-| `POST /admin/administrators/:id/reset-2fa` **⇑** | Clears the target's 2FA, revokes its sessions, forces re-enrolment; **password unchanged**; not allowed on yourself; audited + notified (D-039) |
-| `POST /admin/administrators/:id/revoke-sessions` | |
+| ✅ `GET /admin/administrators` | `[{ id, name, email, role, status, mustChangePassword, twoFactorEnabled, securityAlert, lastLoginAt, createdAt }]` |
+| ✅ `POST /admin/administrators` **⇑** | `{ name, email, temporaryPassword? }`: if `temporaryPassword` is omitted the server generates one and returns it **once** (`201 { data: { admin, temporaryPassword } }`) → `mustChangePassword: true`, must enrol 2FA at first sign-in. Role is always `super_admin` and isn't accepted from input. |
+| ✅ `PATCH /admin/administrators/:id` **⇑** | `{ name, status }`. Can't disable self or the last active admin. |
+| ✅ `DELETE /admin/administrators/:id` **⇑** | Can't delete self or the last active admin |
+| ✅ `POST /admin/administrators/:id/reset-password` **⇑** | `{ temporaryPassword? }` (generated and returned once if omitted) → revokes that admin's sessions; **2FA unchanged**; audited + notified (D-039) |
+| ✅ `POST /admin/administrators/:id/reset-2fa` **⇑** | Clears the target's 2FA, revokes its sessions, forces re-enrolment; **password unchanged**; not allowed on yourself; audited + notified (D-039) |
+| ✅ `POST /admin/administrators/:id/revoke-sessions` | Ends all sessions of that admin (audited) |
 
 ### 5.9 Dashboard & audit
 - `GET /admin/dashboard` → `{ leads: { new, last30Days }, unpublishedChanges: [ … ], placeholders: [{ kind, id, title, count }], brokenReferences: [ … ], recentActivity: [ … ] }`.
-- `GET /admin/audit-logs?actor=&action=&entityType=&from=&to=&page=` (read-only).
+- ✅ `GET /admin/audit-logs?actor=&action=&entityType=&from=&to=&page=&limit=` (read-only; newest first; each entry `{ id, at, actor, actorEmail, action, outcome, entityType, entityId, summary, meta, ipHash, requestId }`).
 
 ---
 

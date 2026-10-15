@@ -23,7 +23,13 @@
     "format:check": "prettier --check .",
     "check:no-ts": "node scripts/check-no-typescript.js",
     "smoke": "node scripts/smoke.js",
-    "check": "npm run check:no-ts && npm run lint && npm run format:check && npm test && npm run build && npm run smoke"
+    "check": "npm run check:no-ts && npm run lint && npm run format:check && npm test && npm run build && npm run smoke",
+    "admin:create": "npm run admin:create -w server --",
+    "admin:list": "npm run admin:list -w server --",
+    "admin:reset-password": "npm run admin:reset-password -w server --",
+    "admin:reset-2fa": "npm run admin:reset-2fa -w server --",
+    "seed": "npm run seed -w server --",
+    "secrets:generate": "npm run secrets:generate -w server --"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

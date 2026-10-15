@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Approved in Stage 02 with refinements (D-018–D-041). **Stage 03 implemented the foundation**; see §12 for what exists today. |
+| **Status** | Approved in Stage 02 with refinements (D-018–D-041). Stage 03 built the foundation; **Stage 04 added the database layer, admin security, CLI and seed**. §12 lists what exists today. |
 | **Related** | `DATABASE_SCHEMA.md`, `API_REFERENCE.md`, `DESIGN_SYSTEM.md`, `ADMIN_GUIDE.md`, `ROUTE_MAP.md`, `DECISIONS.md` |
 | **Constraints** | MongoDB, Express, React, Node.js, Tailwind CSS. **JavaScript only, no TypeScript anywhere.** One administrative role (`super_admin`); public visitors are anonymous. |
 
@@ -278,11 +278,18 @@ Client build-time variables (`VITE_*`) carry **no secrets**; public keys such as
 | End-to-end | Playwright (+ axe) | Visitor journeys, lead submission, admin login → edit → preview → publish, keyboard navigation, accessibility per template |
 | Performance | Lighthouse CI | Budgets in `DESIGN_SYSTEM.md` §11 |
 
-## 12. Implementation status (Stage 03 foundation)
+## 12. Implementation status (after Stage 04)
 | Area | Exists now | Arrives in |
 |---|---|---|
 | Workspaces | `client/`, `server/`, `shared/`; root scripts; CI workflow | — |
-| Server | `createApp` factory, zod-validated config, pino logging with redaction, request IDs, helmet security headers, JSON body limit, `validate()` middleware, `AppError` + central error handler (safe envelopes), API 404, liveness/readiness health, MongoDB connection with background retry (no schemas), static client serving with SPA fallback, graceful shutdown | Sessions/auth (04), models (04), CMS endpoints (05), meta injection/sitemap (05/07) |
-| Shared | Error codes, roles, API prefix, zod helpers (`objectIdSchema`, `slugSchema`, `formatZodIssues`), `[CONFIRM …]` placeholder scanner, reserved slugs | Section/entity schemas (04–05) |
-| Client | Vite + React 19 + Tailwind v4 tokens (provisional palette), React Router, TanStack Query, API client with error normalisation, foundation status page with live API health, 404 | Design-system components (06), public pages (07), admin (08) |
-| Quality | ESLint 9 (react, hooks, jsx-a11y), Prettier, Vitest (shared/server/client), Supertest, no-TypeScript guard, smoke test (client build + production server start) | Playwright + axe (06), Lighthouse CI (07) |
+| Server core | `createApp` factory, service container (`src/container.js`), zod-validated config, pino logging with redaction, request IDs, helmet CSP, safe error envelopes (DB outages → 503), liveness/readiness health, MongoDB connector (background retry, `ensureIndexes`, `strictQuery`, `sanitizeFilter`, `bufferCommands: false`), SPA hosting, graceful shutdown | Meta injection/sitemap (05/07) |
+| Data | All 15 Mongoose models with indexes; `publishable` plugin (draft/publish validation, derived placeholders and references); content service (create, revision-guarded draft save, publish with all checks, unpublish, revisions, slug-change redirects) | CRUD/preview/ordering endpoints (05) |
+| Admin security | argon2id passwords; server-side sessions (`mfa_pending` → `enrollment`/`active`); mandatory TOTP with replay protection; recovery codes (HMAC, single use); step-up; lockout; rate limits; CSRF origin check; audit log (fail-closed for privileged actions); security notifications via the `log` mailer | Resend driver (05); admin UI (08) |
+| Routes | `/api/v1/health*`, `/api/v1/auth/*`, `/api/v1/admin/administrators*`, `/api/v1/admin/audit-logs`, `/api/v1/public/services*` | The rest of `API_REFERENCE.md` (05) |
+| CLI | `admin:create`, `admin:list`, `admin:reset-password`, `admin:reset-2fa`, `seed`, `secrets:generate` (`server/src/cli/`); production requires `--allow-production` | — |
+| Shared | Error codes, roles, auth input rules (password policy, TOTP and recovery-code formats), zod helpers, content schemas (all entities, settings keys, 15 section types, page-template rules), placeholder scanner, reserved slugs | — |
+| Client | Vite + React 19 + Tailwind v4 tokens (provisional palette), router, query client, API client, foundation page with live API health, 404 | Design system (06), public pages (07), admin (08) |
+| Quality | ESLint 9, Prettier, Vitest; server integration tests on an isolated in-memory MongoDB (`mongodb-memory-server`); no-TypeScript guard; smoke test (now also checks 503-on-DB-down and CSRF rejection) | Playwright + axe (06), Lighthouse CI (07) |
+
+### 12.1 Request pipeline additions (Stage 04)
+`/api/v1/auth` and `/api/v1/admin` run, in order: origin check (D-012) → cookie parsing → session resolution (`req.auth = { session, admin }`) → `Cache-Control: no-store` → route guards. `/admin` adds `requireSuperAdmin()` and the admin rate limiter at router level; step-up and validation are attached per route from the declarative route table.

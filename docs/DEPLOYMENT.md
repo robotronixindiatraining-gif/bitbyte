@@ -43,6 +43,13 @@ Selection criteria: budget, who maintains it, region latency for Indian visitors
 `NODE_ENV=production`, `PORT`, `PUBLIC_SITE_URL`, `MONGODB_URI`, `TRUST_PROXY_HOPS`, `LOG_LEVEL`, `CLIENT_DIST_DIR`, then by stage: `ALLOWED_ORIGINS`, `SESSION_*`, `TOTP_ENCRYPTION_KEY`, `RECOVERY_CODE_PEPPER`, `IP_HASH_SALT` (04); `MEDIA_DRIVER=cloudinary`, `CLOUDINARY_URL`, `MAIL_DRIVER=resend`, `RESEND_API_KEY`, `MAIL_FROM`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_ALLOWED_HOSTNAMES` (05); `CANONICAL_HOST` (10, after verification); `ERROR_TRACKING_DSN` (optional).
 **Never** commit `.env` files. `server/.env.example` contains placeholders only.
 
+## 4a. First production bootstrap (Stage 04 tooling)
+1. Generate the secrets once on a trusted machine: `npm run secrets:generate`. Store them **only** in the host's secret store. Never put them in Git, chat or tickets. Back them up in the company password manager: losing `TOTP_ENCRYPTION_KEY` forces every admin to re-enrol 2FA.
+2. Deploy; the server creates missing indexes on start-up.
+3. From a shell on the host (same environment): `npm run seed -- --allow-production`, then `npm run admin:create -- --email … --name "…" --allow-production`. The temporary password is printed once; hand it over in person or by phone.
+4. The admin signs in, enrols 2FA, stores the recovery codes offline and changes the password. Create a **second** super admin the same way, so account recovery never depends on server access.
+5. Both commands are safe to re-run and are recorded in the audit log as `system:cli`.
+
 ## 5. Build, release & rollback
 - CI (`.github/workflows/ci.yml`) runs `npm run check`: no-TypeScript guard, lint, format check, tests, client build and smoke test.
 - **Release:** the host builds with `npm ci && npm run build` and starts with `npm start`. Health checks: liveness `GET /api/v1/health`; readiness `GET /api/v1/health/ready` (D-041).

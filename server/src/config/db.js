@@ -1,7 +1,17 @@
 import mongoose from 'mongoose';
 import { DB_STATES } from '@bitbyte/shared';
+import { ensureIndexes } from '../models/index.js';
 
 const MAX_RETRY_DELAY_MS = 30_000;
+
+/** Global Mongoose safety settings (also applied by tests and the CLI). */
+export function configureMongoose() {
+  mongoose.set('strictQuery', true);
+  // Reject query operators injected through user input (e.g. { "$gt": "" }).
+  mongoose.set('sanitizeFilter', true);
+  // Fail fast (→ 503) instead of queueing queries while the database is unavailable.
+  mongoose.set('bufferCommands', false);
+}
 
 /**
  * MongoDB connection manager. The server starts without waiting for the database and keeps
@@ -17,9 +27,7 @@ export function createDatabase({ uri, logger, autoIndex = true }) {
   let retryTimer = null;
   let wakeUp = null;
 
-  mongoose.set('strictQuery', true);
-  // Reject query operators injected through user input (e.g. { "$gt": "" }).
-  mongoose.set('sanitizeFilter', true);
+  configureMongoose();
 
   function getState() {
     if (!uri) return DB_STATES.DISABLED;
@@ -53,6 +61,8 @@ export function createDatabase({ uri, logger, autoIndex = true }) {
         attempts += 1;
         connectedOnce = true;
         logger.info('database connected');
+        // Create missing indexes (never drops existing ones).
+        await ensureIndexes().catch((err) => logger.error({ err }, 'index creation failed'));
         return;
       } catch (err) {
         attempts += 1;

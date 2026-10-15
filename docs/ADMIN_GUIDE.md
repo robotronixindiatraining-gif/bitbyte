@@ -13,17 +13,38 @@
 | Topic | Behaviour |
 |---|---|
 | Sign-in URL | `/admin/login` (the only login on the site; there are no visitor accounts) |
-| First account | Created on the server with `npm run admin:create`; the password must be changed at first sign-in |
+| First account | Created on the server with `npm run admin:create` (§1.1). It prints a one-time temporary password; at first sign-in you set up two-factor, then change the password |
 | More accounts | Any super admin can add another named super admin (Administrators screen), so each person has their own account and audit trail. All accounts have identical rights (D-004). |
 | Session | Signs out after **2 h idle** or **12 h** total. "Sign out other devices" is available under Account. |
 | Lockout | Repeated failed sign-ins lock the account temporarily; the message is always generic |
-| Two-factor (mandatory) | Every account uses an authenticator app (TOTP). At first sign-in you scan a QR code, confirm a code, and receive **10 recovery codes shown once**: store them offline. Until enrolment is complete, the account can only enrol, change its password or sign out (D-026, D-039). |
+| Two-factor (mandatory) | Every account uses an authenticator app (TOTP). At first sign-in you scan a QR code, confirm a code, and receive **10 recovery codes shown once**: store them offline. Until enrolment is complete, the account can only enrol or sign out. After enrolment, an account with a temporary password can only change it (D-026, D-039). |
 | Sign-in | E-mail + password, then a 6-digit code (or one recovery code). A password alone never opens the dashboard. |
-| Sensitive actions | Changing your password, regenerating recovery codes, managing administrators, exporting or erasing leads and changing retention ask you to **re-confirm password + code** (valid 5 minutes) |
+| Sensitive actions | Changing your password (asks for your current password and a code directly), regenerating recovery codes, managing administrators, exporting or erasing leads and changing retention ask you to **re-confirm password + code** (valid 5 minutes) |
 | Lost phone | Sign in with a recovery code, then re-enrol under Account → Two-factor |
 | Lost phone **and** recovery codes | Another super admin uses **Reset two-factor** on your account (after re-confirming their own password + code). Your sessions end, your password stays the same, and you re-enrol at next sign-in. If no other admin can help, a developer runs `npm run admin:reset-2fa` on the server. |
 | Forgotten password | Another super admin sets a temporary password (your 2FA stays in place), or a developer runs `npm run admin:reset-password`. There are no e-mail reset links (D-027). |
-| Notifications | Every password or 2FA reset and every recovery-code use is e-mailed to the affected admin and all other admins, and shown as a dashboard alert for 7 days |
+| Notifications | Every password or 2FA reset and every recovery-code use is e-mailed to the affected admin and all other admins, and shown as a dashboard alert for 7 days. (Until the Resend driver arrives in Stage 05, e-mails are only recorded in the server log.) |
+
+### 1.1 Server commands (implemented in Stage 04)
+Run on the server, from the repository root. They need the same environment as the server (`server/.env` locally, the host's secret store in production). **In production every command refuses to run unless `--allow-production` is added**, so an account cannot be created by accident. No command accepts a password: temporary passwords are generated, shown once, and must be changed at first sign-in.
+
+| Task | Command | Effect |
+|---|---|---|
+| Generate the security secrets (once per environment) | `npm run secrets:generate` | Prints `TOTP_ENCRYPTION_KEY`, `RECOVERY_CODE_PEPPER` and `IP_HASH_SALT`. Paste them into `server/.env` (local) or the host's secret store. Nothing is written to disk. |
+| Create the first (or another) super admin | `npm run admin:create -- --email you@example.com --name "Your Name"` | New account with a one-time temporary password. Safe to re-run: an existing e-mail is never modified. |
+| List administrators | `npm run admin:list` | E-mail, name, status, 2FA state, last sign-in (no secrets) |
+| Forgotten password (no other admin available) | `npm run admin:reset-password -- --email you@example.com` | New temporary password; all sessions end; **2FA unchanged** |
+| Lost authenticator **and** recovery codes (no other admin available) | `npm run admin:reset-2fa -- --email you@example.com` | 2FA and recovery codes cleared; all sessions end; **password unchanged**; re-enrol at next sign-in |
+| Insert missing placeholder content | `npm run seed` | Inserts only what is missing; never changes edited content or admin accounts; publishes nothing |
+
+Every command is recorded in the activity log as `system:cli`.
+
+### 1.2 First sign-in (two-factor enrolment)
+1. Sign in with your e-mail and the temporary password.
+2. Scan the QR code with an authenticator app (or type the manual key), then enter the 6-digit code it shows.
+3. Copy the **10 recovery codes** somewhere safe and offline. They are shown only once, and each works only once.
+4. Choose a new password (at least 12 characters; very common passwords are refused). You need the current password and a fresh code.
+5. You now have full access. Signing in later always needs password + code.
 
 ## 2. Dashboard
 On sign-in the dashboard shows, from the top:

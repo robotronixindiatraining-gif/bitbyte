@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Stage 02 specification. Proposed, awaiting approval. |
+| **Status** | **Implemented in Stage 04**: all 15 collections, their indexes and validation (`server/src/models/`). Content shapes are validated by the shared zod schemas (`shared/src/content/`). Collection endpoints arrive in Stage 05. |
 | **Database** | One MongoDB database (`bitbyte`). Dev: `mongodb://127.0.0.1:27017/bitbyte`. Prod: MongoDB Atlas (D-021). |
 | **Principles** | Hybrid CMS (D-008) · draft/published dual state (D-009) · optimistic concurrency (D-010) · media by reference, binaries in object storage (D-013) · placeholders block publishing (D-015) |
 
@@ -64,6 +64,7 @@ Used by `settings`, `pages`, `services`, `projects`, `testimonials`, `jobOpening
   mediaRefs: [ObjectId],          // → media, union of draft + published references
   entityRefs: [{ kind: String, id: ObjectId }], // services/projects/testimonials/pages/jobs referenced
   placeholders: [String],         // "[CONFIRM …]" tokens found in draft (D-015)
+  seedKey: String,                // stable id of seeded documents (unique when present; idempotent seed)
   createdBy: ObjectId, updatedBy: ObjectId,
   createdAt: Date, updatedAt: Date // Mongoose timestamps
 }
@@ -81,6 +82,12 @@ Used by `settings`, `pages`, `services`, `projects`, `testimonials`, `jobOpening
 - **Slug change:** an edited slug lives in `draft.slug` until publish. On publish the old slug gets an automatic 301 in `redirects` (`source: 'slug-change'`). Slug uniqueness is checked across `slug` and `draft.slug` of other documents. **Services and custom pages share one top-level namespace** (D-038), so uniqueness is checked across both collections plus the reserved list (§5).
 - **Unpublish:** `status → 'archived'`. `published` is kept so it can be republished or restored.
 - **Restore revision:** copies a snapshot into `draft` (not live until published again).
+
+### 2.1a How validation is implemented (Stage 04)
+- Each content shape is defined **once** in `shared/src/content/` with a field "kit" that yields two zod schemas: **draft** (every field optional, formats not enforced, so partial and placeholder content can be saved) and **publish** (required fields, formats, limits). Unknown keys are rejected in both modes (no mass assignment). Unsafe link schemes (`javascript:`, `data:`, `vbscript:`) are rejected even in drafts.
+- The Mongoose `publishable` plugin (`server/src/models/plugins/publishable.js`) validates `draft` with the draft schema and `published` with the publish schema on every save, enforces the status/snapshot invariants, and derives `placeholders`, `mediaRefs` and `entityRefs`.
+- The content service (`server/src/services/contentService.js`) performs revision-guarded `updateOne` writes and the publish checks (strict schema → placeholders → consent/permission → template rules → references → slug namespace).
+- Global Mongoose settings: `strictQuery`, `sanitizeFilter` (operators in untrusted filters are neutralised; server code marks its own operator objects with `mongoose.trusted()`) and `bufferCommands: false` (fail fast → 503 when the DB is down).
 
 ### 2.2 Reusable sub-schemas (defined once in `shared/`)
 
@@ -124,12 +131,14 @@ Seed content uses the `[CONFIRM …]` placeholders from `CONTENT_GAPS.md`. Every
 | `passwordHash` | String | argon2id encoded hash; never returned by any API (`select: false`) |
 | `role` | String | **enum `['super_admin']`**, default `'super_admin'`. The only role that exists (D-004) |
 | `status` | String | `active` \| `disabled` |
-| `failedLoginCount` | Number | reset on success |
-| `lockUntil` | Date\|null | set after repeated failures |
+| `failedLoginCount` | Number | +1 per wrong password, TOTP or recovery code; reset on full sign-in |
+| `lockUntil` | Date\|null | set after 10 consecutive failures: 15 min, doubling per lockout, max 24 h |
+| `lockouts` | Number | consecutive lockouts (drives the doubling); reset on full sign-in |
 | `lastLoginAt` | Date\|null | |
-| `passwordChangedAt` | Date | invalidates older sessions |
+| `passwordChangedAt` | Date | |
+| `sessionsValidAfter` | Date | sessions created before this are invalid (set on password change/reset, 2FA enrolment/reset, disable, revoke-all) |
 | `mustChangePassword` | Boolean | true for CLI-created or reset accounts |
-| `twoFactor` | `{ enabled: Boolean, secretEncrypted: String (AES-256-GCM, key from env), lastUsedStep: Number, enrolledAt: Date, recoveryCodeHashes: [String] (HMAC-SHA-256), recoveryCodesGeneratedAt: Date }` | **Mandatory** (D-026). `select: false`; secret never returned after enrolment; rules in D-039 |
+| `twoFactor` | `{ enabled: Boolean, secretEncrypted: String (AES-256-GCM, key from env), pendingSecretEncrypted: String, pendingCreatedAt: Date (enrolment in progress, 15 min), lastUsedStep: Number, enrolledAt: Date, recoveryCodeHashes: [String] (HMAC-SHA-256), recoveryCodesGeneratedAt: Date }` | **Mandatory** (D-026). `select: false`; secret never returned after enrolment; rules in D-039 |
 | `securityAlertUntil` | Date\|null | set for 7 days after any password/2FA reset (dashboard alert) |
 | `createdBy` | ObjectId\|null | null when created by the CLI |
 | timestamps | | |
@@ -144,7 +153,8 @@ Invariants (service layer): at least one `active` admin must always exist; an ad
 | `admin` | ObjectId → admins | |
 | `createdAt` | Date | |
 | `lastSeenAt` | Date | updated at most once per minute |
-| `expiresAt` | Date | `min(lastSeenAt + idle, createdAt + absolute)` |
+| `absoluteExpiresAt` | Date | `createdAt + absolute` (12 h; 5 min for `mfa_pending`, 30 min for `enrollment`) |
+| `expiresAt` | Date | `min(lastSeenAt + idle, absoluteExpiresAt)`; TTL removes the document afterwards |
 | `stage` | enum | `mfa_pending` (after a correct password; ≤ 5 min, single use) · `enrollment` (restricted: enrol / change password / logout only) · `active` (full access) (D-039) |
 | `mfaAttempts` | Number | max 5 per `mfa_pending` session |
 | `stepUpAt` | Date\|null | last password + TOTP re-authentication; sensitive actions need ≤ 5 min |
@@ -371,13 +381,15 @@ Retention: the latest **25 per entity** (pruned on publish). Indexes: `{ entityT
 |---|---|
 | `at` | Date |
 | `actor` | ObjectId → admins \| null (null = system/CLI) |
-| `actorEmail` | String (denormalised so the log survives admin deletion) |
+| `actorEmail` | String (denormalised so the log survives admin deletion); `system:cli` for CLI actions |
+| `outcome` | `attempted` \| `succeeded` \| `failed` \| `denied`. Privileged actions write `attempted` **before** acting (no entry → no action) and are completed afterwards; an entry left at `attempted` means the outcome could not be recorded |
 | `action` | e.g. `auth.login`, `auth.login_failed`, `auth.logout`, `auth.locked`, `content.save_draft`, `content.publish`, `content.unpublish`, `content.restore`, `content.delete`, `media.upload`, `media.delete`, `lead.status_change`, `lead.export`, `lead.erase`, `settings.publish`, `admin.create`, `admin.disable`, `admin.password_reset`, `redirect.change` |
 | `entityType`, `entityId` | String, ObjectId |
 | `summary` | String ≤ 300 (no secrets, no lead PII) |
+| `meta` | Small object of primitive values; keys matching password/secret/token/code/cookie/hash/otp/key are dropped automatically |
 | `ipHash`, `requestId` | String |
 
-Append-only (no update/delete API). Retention 24 months (TTL index on `at`, adjustable).
+Collection name: `auditLogs`. Append-only (no update/delete API; only the service completes its own `attempted` entries). Retention 24 months (TTL index on `at`, adjustable).
 Indexes: `{ at: -1 }` · `{ entityType: 1, entityId: 1, at: -1 }` · `{ actor: 1, at: -1 }` · TTL on `at`.
 
 ---
@@ -462,5 +474,8 @@ revisions *──1 (any publishable entity)
 
 ## 8. Migrations & seeding
 - **No legacy data migration** (D-002).
-- `npm run seed` is **idempotent**: it upserts system pages, the five known services (indexed snippet text, where it exists, is seeded together with a `[CONFIRM VERIFIED COPY]` token so it can't be published until checked against the source), the eight portfolio project names (as drafts with `[CONFIRM …]` placeholders), the three categories, settings with placeholders and the `orderings` documents. It creates **no redirects**: legacy URLs are preserved (D-038). It **never deletes or overwrites** documents that already exist unless run with `--reset-dev`, which refuses to run when `NODE_ENV=production`.
+- `npm run seed` (implemented in Stage 04, `server/src/seed/`) is **idempotent**: each document has an explicit identifier (`seedKey`, or the unique `key` of settings/orderings) and is **inserted only if absent**. Existing documents are never updated or replaced, so administrator edits are preserved; a deleted seeded document is re-created as a draft on the next run.
+- It creates **drafts only**: 10 settings documents, 8 system pages, the 5 indexed services (names from the indexed menu; summary and intro are `[CONFIRM VERIFIED COPY]`, plus `[CONFIRM LEGACY URL]` for the two services whose legacy URL is unknown), the 3 indexed project categories, and the 5 `orderings` documents (draft order only).
+- It creates **no** portfolio projects, testimonials, job openings, redirects or company facts (Stage 04 refinement: the eight indexed project names stay in `CONTENT_INVENTORY.md` until verified). It **never reads or writes administrator accounts**.
+- In production it runs only with `--allow-production`.
 - Schema evolution happens through additive changes plus versioned, idempotent scripts in `server/src/cli/migrations/`.

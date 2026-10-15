@@ -30,6 +30,26 @@ const envSchema = z
       .optional(),
     TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
     CLIENT_DIST_DIR: z.string().min(1).optional(),
+    ALLOWED_ORIGINS: z.string().optional(),
+    SESSION_COOKIE_NAME: z
+      .string()
+      .regex(
+        /^[A-Za-z0-9_-]+$/,
+        'Letters, digits, "_" and "-" only (the __Host- prefix is added in production)',
+      )
+      .optional(),
+    SESSION_IDLE_MINUTES: z.coerce.number().int().min(5).max(1440).default(120),
+    SESSION_ABSOLUTE_HOURS: z.coerce.number().int().min(1).max(24).default(12),
+    TOTP_ENCRYPTION_KEY: z
+      .string()
+      .refine(
+        (v) => Buffer.from(v, 'base64').length === 32,
+        'Must be 32 random bytes, base64-encoded',
+      )
+      .optional(),
+    RECOVERY_CODE_PEPPER: z.string().min(32, 'Must be at least 32 characters').optional(),
+    IP_HASH_SALT: z.string().min(16, 'Must be at least 16 characters').optional(),
+    MAIL_DRIVER: z.enum(['log']).default('log'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -49,6 +69,15 @@ const envSchema = z
     if (!env.MONGODB_URI) {
       ctx.addIssue({ code: 'custom', path: ['MONGODB_URI'], message: 'Required in production' });
     }
+    for (const name of ['TOTP_ENCRYPTION_KEY', 'RECOVERY_CODE_PEPPER', 'IP_HASH_SALT']) {
+      if (!env[name]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [name],
+          message: 'Required in production (npm run secrets:generate)',
+        });
+      }
+    }
     if (env.LOG_PRETTY === true) {
       ctx.addIssue({
         code: 'custom',
@@ -57,6 +86,22 @@ const envSchema = z
       });
     }
   });
+
+function parseOrigins(list, issues) {
+  return (list ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => {
+      try {
+        return new URL(value).origin;
+      } catch {
+        issues.push({ path: 'ALLOWED_ORIGINS', message: `Invalid origin: ${value}` });
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
 
 function isLocalUrl(value) {
   const { hostname } = new URL(value);
@@ -84,6 +129,12 @@ export function loadConfig(source = process.env) {
   }
   const env = result.data;
   const isProduction = env.NODE_ENV === 'production';
+  const originIssues = [];
+  const allowedOrigins = new Set(parseOrigins(env.ALLOWED_ORIGINS, originIssues));
+  if (originIssues.length > 0) throw new ConfigError(originIssues);
+  if (env.PUBLIC_SITE_URL) allowedOrigins.add(new URL(env.PUBLIC_SITE_URL).origin);
+  if (env.NODE_ENV === 'development') allowedOrigins.add('http://localhost:5173');
+  const cookieBase = env.SESSION_COOKIE_NAME ?? 'bb_sid';
   return Object.freeze({
     env: env.NODE_ENV,
     isProduction,
@@ -99,5 +150,19 @@ export function loadConfig(source = process.env) {
     trustProxyHops: env.TRUST_PROXY_HOPS,
     clientDistDir: path.resolve(serverRoot, env.CLIENT_DIST_DIR ?? '../client/dist'),
     jsonBodyLimit: '200kb',
+    allowedOrigins: Object.freeze([...allowedOrigins]),
+    session: Object.freeze({
+      // __Host- cookies must be Secure, Path=/ and host-only (no Domain attribute).
+      cookieName: isProduction ? `__Host-${cookieBase}` : cookieBase,
+      secureCookie: isProduction,
+      idleMs: env.SESSION_IDLE_MINUTES * 60_000,
+      absoluteMs: env.SESSION_ABSOLUTE_HOURS * 3_600_000,
+    }),
+    secrets: Object.freeze({
+      totpKey: env.TOTP_ENCRYPTION_KEY ? Buffer.from(env.TOTP_ENCRYPTION_KEY, 'base64') : null,
+      recoveryCodePepper: env.RECOVERY_CODE_PEPPER ?? null,
+      ipHashSalt: env.IP_HASH_SALT ?? null,
+    }),
+    mailDriver: env.MAIL_DRIVER,
   });
 }

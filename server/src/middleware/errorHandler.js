@@ -14,6 +14,15 @@ const BODY_PARSER_ERRORS = {
   ],
 };
 
+function isDatabaseUnavailable(err) {
+  if (!err) return false;
+  if (/^Mongo(ServerSelection|Network|NotConnected)Error$/.test(err.name)) return true;
+  return (
+    err.name === 'MongooseError' &&
+    /initial connection|buffering timed out|not connected/i.test(err.message)
+  );
+}
+
 /** @returns {AppError} */
 export function toAppError(err) {
   if (err instanceof AppError) return err;
@@ -27,6 +36,13 @@ export function toAppError(err) {
   }
   const bodyError = err && BODY_PARSER_ERRORS[err.type];
   if (bodyError) return new AppError(...bodyError);
+  if (isDatabaseUnavailable(err)) {
+    return new AppError(
+      503,
+      ERROR_CODES.SERVICE_UNAVAILABLE,
+      'The service is temporarily unavailable.',
+    );
+  }
   return new AppError(500, ERROR_CODES.INTERNAL_ERROR, 'An unexpected error occurred.');
 }
 
@@ -48,7 +64,7 @@ export function errorHandler({ onUnexpectedError } = {}) {
   // eslint-disable-next-line no-unused-vars
   return (err, req, res, next) => {
     const appError = toAppError(err);
-    const expected = err instanceof AppError || appError.status < 500;
+    const expected = err instanceof AppError || appError.status < 500 || isDatabaseUnavailable(err);
     const context = { code: appError.code, status: appError.status, requestId: req.id };
     if (!expected) {
       // Unknown failure: full error (with stack) goes to the log only, never to the client.

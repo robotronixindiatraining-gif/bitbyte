@@ -7,8 +7,8 @@ Status of every stage. Updated at the end of each working session and each stage
 | 00 | Discovery & master planning | ✅ Completed: approved with amendments | 2026-10-15 |
 | 01 | Content extraction & asset inventory | 🟡 **Partially complete.** Approved as a partial deliverable by the owner. The original website was **not** accessed directly and all extracted content is **unverified**. Remaining verification continues as parallel track V (`PROJECT_PLAN.md` §4). | 2026-10-15 |
 | 02 | Architecture & design specification | ✅ Approved with required refinements (incorporated: D-018 – D-039) | 2026-10-15 |
-| 03 | Project foundation | 🟡 **Implemented; all checks pass locally. Awaiting approval.** | 2026-10-15 |
-| 04 | Backend core & auth | ⏸ Not started | — |
+| 03 | Project foundation | ✅ Approved | 2026-10-15 |
+| 04 | Database & admin security foundation | 🟡 **Implemented; all checks pass locally. Awaiting approval.** | 2026-10-15 |
 | 05 | CMS APIs & media | ⏸ Not started | — |
 | 06 | Design system implementation & public shell | ⏸ Not started | — |
 | 07 | Public website | ⏸ Not started | — |
@@ -114,5 +114,56 @@ No packages were removed or upgraded (none existed). Version choices and the del
 - **Prettier stability:** one file needed a second formatting pass (a known Prettier member-chain quirk); it is stable now.
 - The foundation page is temporary and is replaced by the CMS-driven homepage in Stage 07.
 
+## Stage 04: database and admin security foundation
+
+### Acceptance criteria
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Mongoose models + indexes for the 15 documented collections; no undocumented collections | ✅ (`test/models.test.js` lists the collections and checks key indexes) |
+| 2 | Draft/publish model with placeholders, references, revisions, conflict protection | ✅ (`test/publication.test.js`) |
+| 3 | argon2id passwords; mandatory TOTP; single-use hashed recovery codes | ✅ |
+| 4 | Server-side sessions with idle/absolute expiry; HttpOnly, SameSite=Strict (Secure + `__Host-` in production) cookies | ✅ |
+| 5 | CSRF protection for cookie-authenticated writes | ✅ Origin/Referer allowlist + `X-Requested-With` + JSON-only |
+| 6 | Login rate limiting, temporary lockout, generic errors | ✅ |
+| 7 | Sessions invalidated after password/2FA changes; step-up for sensitive actions | ✅ |
+| 8 | **A password alone never establishes an admin session** | ✅ (tested for every admin route) |
+| 9 | Exactly one role; multiple accounts; no public registration or public admin creation | ✅ |
+| 10 | CLI: create first/additional admin, reset password, reset 2FA; production guard; safe re-runs | ✅ (`test/cli.test.js` + manual run on real MongoDB) |
+| 11 | Audit log with actor, action, target, time, request ID; no secrets; fail-closed | ✅ (`test/admins.test.js`) |
+| 12 | Idempotent placeholder seed that never overwrites admin edits or accounts | ✅ (`test/seed.test.js`) |
+| 13 | Public routes expose only published content | ✅ (services endpoints; the rest arrive in Stage 05) |
+| 14 | Docs updated; full pipeline green | ✅ locally; CI result on push recorded below |
+
+### Verification results (2026-10-15, Node 22.22.0, npm 10.9.4, MongoDB 8.0.34)
+| Check | Result |
+|---|---|
+| `npm run check:no-ts` | ✅ No TypeScript found |
+| `npm run lint` / `format:check` | ✅ clean |
+| `npm test` | ✅ shared 19 · server 114 · client 7 = **140 tests** (server suites run on an isolated in-memory MongoDB 8.0.34) |
+| `npm run build` | ✅ JS 110.4 KB gzip (unchanged: shared content schemas are tree-shaken) |
+| `npm run smoke` | ✅ 12/12, incl. "auth answers 503 while the DB is down" and "cross-origin writes rejected" |
+| **Real MongoDB** (Docker `mongo:8.0`, 8.0.34, local) | ✅ seed (31 created, rerun 0 created), `admin:create` (+ safe rerun), production guard, and a full HTTP flow on a running server: readiness 200 → password → enrolment-only 403 → enrol → `PASSWORD_CHANGE_REQUIRED` → change password → admin API 200 → audit log → logout → 401. Throwaway databases dropped afterwards. |
+| `npm audit` (on install) | ✅ 0 vulnerabilities |
+
+### Packages installed (Stage 04)
+| Workspace | Package (version) | Why |
+|---|---|---|
+| server | argon2 0.45.1 | argon2id password hashing (prebuilt native binary; verified loading on Node 22.22) |
+| server | otpauth 9.5.2 | RFC 6238 TOTP |
+| server | qrcode 1.5.4 | Enrolment QR code (data URL) |
+| server | express-rate-limit 8.7.1 | Login / second-factor / admin / public rate limits |
+| server | cookie-parser 1.4.7 | Session cookie parsing |
+| server (dev) | mongodb-memory-server 11.3.0 | Isolated MongoDB per test file |
+
+No packages removed or upgraded.
+
+### Security limitations and known issues (honest status)
+- **Not a production security verification.** The controls are covered by automated tests and a local end-to-end run; no penetration test, dependency review beyond `npm audit`, or production configuration review has been done (planned for Stage 09).
+- **In-memory rate limits:** they reset on restart and are per process. This is fine for a single instance; it needs a shared store if scaled out (D-011).
+- **Notification e-mails are log-only** until the Resend driver (Stage 05, D-048). Admins are not actually e-mailed yet.
+- **`mongodb-memory-server` in this environment** uses a `mongod` binary extracted from the official image (`MONGOMS_SYSTEM_BINARY`), because MongoDB's download host is blocked here. CI downloads the same version.
+- **No transactions:** publishing is one atomic document update followed by the revision/audit writes. If the process dies between them, the item is live but its revision snapshot may be missing (logged; it does not corrupt content).
+- **Prettier** occasionally needs two passes on long member chains (cosmetic).
+
 ## Dependencies (summary)
-Stages 00–02: none. Stage 03: see the table above. Planned additions by stage are listed in `DECISIONS.md` D-036.
+Stages 00–02: none. Stage 03: see the Stage 03 table. Stage 04: see the table above. Planned additions by stage are listed in `DECISIONS.md` D-036.

@@ -5,6 +5,7 @@
  * pointed at an unreachable MongoDB URI and must still start (D-041).
  */
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
@@ -70,6 +71,10 @@ async function main() {
       PUBLIC_SITE_URL: baseUrl,
       MONGODB_URI: 'mongodb://127.0.0.1:1/bitbyte_smoke',
       LOG_LEVEL: 'warn',
+      // Throwaway secrets for this run only (production refuses to start without them).
+      TOTP_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
+      RECOVERY_CODE_PEPPER: randomBytes(32).toString('base64url'),
+      IP_HASH_SALT: randomBytes(24).toString('base64url'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -99,6 +104,24 @@ async function main() {
 
     const deepLink = await fetch(`${baseUrl}/internet-of-things`);
     assert(deepLink.status === 200, 'client-side routes fall back to the app shell');
+
+    const login = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: baseUrl, 'X-Requested-With': 'fetch' },
+      body: JSON.stringify({ email: 'nobody@example.com', password: 'irrelevant password' }),
+    });
+    assert(login.status === 503, 'auth answers 503 (not a hang or 500) while the database is down');
+
+    const csrf = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://evil.example',
+        'X-Requested-With': 'fetch',
+      },
+      body: '{}',
+    });
+    assert(csrf.status === 403, 'cross-origin state-changing requests are rejected');
 
     const missingApi = await fetch(`${baseUrl}/api/v1/nope`);
     const missingBody = await missingApi.json();

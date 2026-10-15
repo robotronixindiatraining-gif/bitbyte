@@ -167,3 +167,38 @@ Workspaces `shared/`, `server/`, `client/`; root configuration; scripts; CI. Det
 
 ### 6. Not done (by scope)
 Public website, homepage design, MongoDB schemas/migrations, admin authentication, CMS, production infrastructure and external service provisioning.
+
+---
+
+## Stage 04: Database & admin security foundation (2026-10-15)
+
+### 1. Inspection before changes
+| Check | Result |
+|---|---|
+| Branch / status | `claude/amazing-sagan-mwrdn8`, clean, in sync with origin (`e7a94ba`) |
+| Docs read | `ARCHITECTURE.md`, `DATABASE_SCHEMA.md`, `API_REFERENCE.md`, `ADMIN_GUIDE.md`, `DECISIONS.md`, `PROGRESS.md` |
+| MongoDB availability | No local `mongod`. MongoDB download hosts blocked (`fastdl`/`downloads`/`repo.mongodb.org` → no connection). Docker Hub reachable; the Docker daemon was not running and was started manually. |
+
+### 2. Getting a real MongoDB
+- `docker pull mongo:8.0` → MongoDB **8.0.34** (Ubuntu 24.04 base, the same as the host). A disposable container (`bitbyte-mongo-dev`, host network, bound to 127.0.0.1) served as the local development database.
+- `mongod` copied out of the image to `/opt/mongodb/bin/mongod` (outside the repo). All libraries resolved on the host. Used by `mongodb-memory-server` via `MONGOMS_SYSTEM_BINARY` (D-047).
+
+### 3. Implementation (see `ARCHITECTURE.md` §12)
+Shared content and auth schemas → 15 Mongoose models + `publishable` plugin → security primitives (crypto, argon2id, TOTP, recovery codes) → services (audit, sessions, auth, admins, content, public content, notifications, mailer) → middleware (origin check, session guards, rate limits) → controllers + declarative routes → CLI + seed → tests → documentation.
+
+### 4. Issues found and fixed
+| Issue | Fix |
+|---|---|
+| A shell command with a stray redirect emptied and deleted `server/vitest.config.js` | Recreated from the committed version plus the intended timeout settings; the diff shows only those additions |
+| A Python replacement silently did not match a Prettier-reformatted `test/helpers.js` | File rewritten explicitly; later edits assert that their match exists |
+| `sanitizeFilter` also neutralised the server's own `$ne`/`$gt`/`$lt`/`$in` operators (CastError) | Server-side operator objects are wrapped in `mongoose.trusted()` (D-042); a test proves injected operators from input are still neutralised |
+| Mongoose 9 deprecation warning for `{ new: true }` | Replaced with `{ returnDocument: 'after' }` |
+| Publish/unpublish surfaced a 500 (not 503) when the audit store failed | Wrapped like the other privileged actions; test added (D-045) |
+| zod cross-field refinements run only after the base fields are valid | Shared test split into the two stages; behaviour documented in the test |
+| `pkill -f` in a manual verification matched its own shell (exit 144) | Cleanup re-run without it; no project impact |
+
+### 5. Verification
+`npm run check` (with `MONGOMS_SYSTEM_BINARY`): no-TS ✅ · lint ✅ · format ✅ · tests 140/140 ✅ · build ✅ · smoke 12/12 ✅. Real-MongoDB runs: CLI (seed, admin create/rerun, production guard) and the full HTTP auth flow against a running server. Throwaway databases (`bitbyte_cli_check`, `bitbyte_e2e_check`) were dropped. Details are in `PROGRESS.md`.
+
+### 6. Not done (by scope)
+Public website, CMS write endpoints beyond the services/admin/audit routes listed, media uploads, leads, the Resend driver, the admin UI and production provisioning.

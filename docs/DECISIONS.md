@@ -46,6 +46,13 @@ New decisions are appended; superseded ones stay, marked with a pointer to their
 | D-039 | Two-factor and account-recovery security rules | Accepted | 2026-10-15 |
 | D-040 | Stage 03 tooling choices | Accepted (implemented) | 2026-10-15 |
 | D-041 | Health endpoints: liveness and readiness | Accepted (implemented) | 2026-10-15 |
+| D-042 | Query-injection defence: `sanitizeFilter` + `mongoose.trusted()`; fail fast when the DB is down | Accepted (implemented) | 2026-10-15 |
+| D-043 | Locked accounts answer with the generic 401, not 429 | Accepted (implemented) | 2026-10-15 |
+| D-044 | Enrolment before password change; password change needs a TOTP code | Accepted (implemented) | 2026-10-15 |
+| D-045 | Fail-closed auditing of privileged actions | Accepted (implemented) | 2026-10-15 |
+| D-046 | Seed: explicit identifiers, insert-only, no portfolio projects | Accepted (implemented) | 2026-10-15 |
+| D-047 | Test database: `mongodb-memory-server` pinned to MongoDB 8.0.34 | Accepted (implemented) | 2026-10-15 |
+| D-048 | Security notifications via the `log` mail driver until Stage 05 | Accepted (implemented) | 2026-10-15 |
 
 ---
 
@@ -241,6 +248,28 @@ Installed from Stage 03 onward, per stage need. Versions are pinned via the lock
 - `GET /api/v1/health` is **liveness**: 200 whenever the process serves requests, and reports the database state (`up`, `connecting`, `down`, `disabled`).
 - `GET /api/v1/health/ready` is **readiness**: 200 only when the database is connected, otherwise 503.
 - The server starts without a database and keeps retrying the connection in the background, so the process can start and report its state. Hosting health checks use liveness for restarts and readiness for routing traffic. This supersedes the Stage 02 note that `/health` returns 503.
+
+
+### D-042 Query-injection defence (Stage 04)
+Global `sanitizeFilter` turns operators in untrusted filter values (e.g. `{ "$ne": null }`) into literals, so such queries are rejected instead of matching. Server code marks its own operator objects with `mongoose.trusted()`. This sits behind strict zod validation, which already rejects non-string credentials (422). `bufferCommands: false` makes queries fail immediately when MongoDB is unreachable; the error handler maps those failures to `503 SERVICE_UNAVAILABLE` (verified by the smoke test).
+
+### D-043 Lockout response (refines API_REFERENCE §1.2)
+A locked or disabled account answers exactly like a wrong password (`401 INVALID_CREDENTIALS`), with the same argon2 work. Answering `429` for lockout would reveal that the e-mail belongs to an account. `429` is used only by the request-rate limiters.
+
+### D-044 Order of first sign-in (refines D-039)
+A new admin first **enrols 2FA** (restricted `enrollment` session), and only then changes the temporary password. `change-password` always requires the current password **and** a current TOTP code (inline re-authentication), so it never needs a password-only session. Confirming enrolment ends all of the admin's sessions and issues one new session. Re-enrolling from an active session requires step-up.
+
+### D-045 Fail-closed auditing
+Privileged actions (admin create/update/delete, password and 2FA resets, session revocation, 2FA enrolment, password change, recovery-code regeneration, publish/unpublish) write an `attempted` audit entry **before** acting. If that write fails, the action is refused with 503. The entry is then completed as `succeeded`/`failed`. If completion itself fails, it stays `attempted` and the failure is logged, so the log never claims a success it did not record. A successful sign-in is audited before the session is issued (no audit → no session). Failed sign-ins are recorded best-effort (the response is 401 either way). Audit metadata is reduced to primitives, and keys that look like secrets are dropped.
+
+### D-046 Seed design (refines DATABASE_SCHEMA §8)
+Explicit identifiers (`seedKey`, or the unique settings/ordering `key`). Documents are **inserted only when absent**: no updates, no upserts that modify, and a unique-index conflict leaves the existing document untouched. Seeded drafts contain `[CONFIRM …]` placeholders, so nothing seeded can be published unverified. **Portfolio project names are not seeded** (unlike the Stage 02 plan): creating them, even as drafts, could read as portfolio claims; they stay in `CONTENT_INVENTORY.md` until verified. Administrator accounts are never read or written by the seed. A deleted seeded document is re-created as a draft on the next run (documented behaviour).
+
+### D-047 Test database
+Server integration tests use `mongodb-memory-server` (a real `mongod` in a temporary directory per test file), pinned to **MongoDB 8.0.34** via `MONGOMS_VERSION`. CI downloads the binary. Where downloads are blocked (as in the build environment), `MONGOMS_SYSTEM_BINARY` points at a local `mongod`; there it was extracted from the official `mongo:8.0` Docker image. Tests never use a development or production database. For local development, a MongoDB 8.0 container (`docker run -d -p 27017:27017 mongo:8.0`) is the documented option.
+
+### D-048 Notification e-mails in Stage 04
+Security notifications (resets, recovery-code use, password changes) go through the mail adapter's `log` driver: recorded as "would send" with the subject and recipient count only. The Resend driver (D-019) replaces it in Stage 05 without code changes in the callers.
 
 ---
 

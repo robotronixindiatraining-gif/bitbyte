@@ -18,6 +18,11 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - name: Cache MongoDB binaries for mongodb-memory-server
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-8.0.34
       - run: npm ci
       - run: npm run check
       - name: Audit production dependencies
