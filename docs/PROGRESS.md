@@ -5,8 +5,8 @@ Status of every stage. Updated at the end of each working session and each stage
 | Stage | Name | Status | Updated |
 |---|---|---|---|
 | 00 | Discovery & master planning | ✅ Completed: approved with amendments | 2026-10-15 |
-| 01 | Content extraction & asset inventory | 🟡 **In progress, blocked**: extraction done to the limit of the available access; acceptance criteria not met | 2026-10-15 |
-| 02 | Architecture & design specification | ⏸ Not started (waits on Stage 01 approval) | — |
+| 01 | Content extraction & asset inventory | 🟡 **Partially complete.** Approved as a partial deliverable by the owner. The original website was **not** accessed directly and all extracted content is **unverified**. Remaining verification continues as parallel track V (`PROJECT_PLAN.md` §4). | 2026-10-15 |
+| 02 | Architecture & design specification | 🟡 Specification delivered, **awaiting approval** | 2026-10-15 |
 | 03 | Project foundation | ⏸ Not started | — |
 | 04 | Backend core & auth | ⏸ Not started | — |
 | 05 | CMS APIs & media | ⏸ Not started | — |
@@ -24,7 +24,7 @@ Status of every stage. Updated at the end of each working session and each stage
 - **Exactly one administrative role: `super_admin`.** Public visitors are unauthenticated. No public registration, login or user accounts. All privileged actions are authorised on the backend.
 - Unverifiable facts are recorded as `[CONFIRM …]` placeholders and never presented as verified.
 
-**Superseded parts of `STAGE_00_DISCOVERY_REPORT.md`:** §1.3 and §5.4 (legacy recovery/migration), §6.1 (three-role matrix), the `trainingPrograms` collection, and Q2/Q3/Q13 (now answered). These will be removed from the plan documents in Stage 02.
+**Superseded parts of `STAGE_00_DISCOVERY_REPORT.md`:** §1.3 and §5.4 (legacy recovery/migration), §6.1 (three-role matrix), the `trainingPrograms` collection, and Q2/Q3/Q13 (now answered). The Stage 00 report is kept unchanged as a historical record; its superseded items are listed in `DECISIONS.md` ("Superseded items"), and the current plan is in `PROJECT_PLAN.md`.
 
 ## Stage 01: acceptance criteria
 
@@ -40,7 +40,23 @@ Status of every stage. Updated at the end of each working session and each stage
 | 8 | Owner has reviewed the inventory and answered the blocking confirmations | ❌ Pending |
 | 9 | Logo obtained so the brand palette can be derived in Stage 02 | ❌ Pending |
 
+**Owner decision (2026-10-15):** Stage 01 accepted as a **partial** deliverable. No further retries of the inaccessible site from this environment. Extraction is **not** claimed complete. Criteria 1, 3, 4, 8 and 9 move to track V and gate Stage 09.
+
 **Stage 01 can be marked complete when:** criteria 1, 3 and 4 are upgraded through one access option (`CONTENT_GAPS.md` §A), the logo has arrived (9), and the owner has resolved or explicitly deferred the conflicts in `CONTENT_GAPS.md` §B (8).
 
+## Stage 02: deliverables
+| Deliverable | File | Status |
+|---|---|---|
+| Architecture | `ARCHITECTURE.md` | ✅ Drafted |
+| Database schema | `DATABASE_SCHEMA.md` | ✅ Drafted |
+| API contract | `API_REFERENCE.md` | ✅ Drafted |
+| Design system (provisional palette) | `DESIGN_SYSTEM.md` | ✅ Drafted |
+| Route & content architecture | `ROUTE_MAP.md` (classified K/I/N/C); `CONTENT_INVENTORY.md` unchanged (proposed routes already consistent) | ✅ |
+| Admin workflows | `ADMIN_GUIDE.md` (workflow specification) | ✅ Drafted |
+| Decisions | `DECISIONS.md` (D-001 – D-036) | ✅ Drafted |
+| Plan | `PROJECT_PLAN.md` | ✅ Drafted |
+| README | `README.md` (project status + docs index) | ✅ Updated |
+| **Owner approval** | — | ⏳ Pending |
+
 ## Dependencies
-No packages installed, removed or upgraded in Stages 00–01. Version research only (`npm view`).
+No packages installed, removed or upgraded in Stages 00–02. Version research only (`npm view`). The planned Stage 03+ dependency list is in `DECISIONS.md` D-036.

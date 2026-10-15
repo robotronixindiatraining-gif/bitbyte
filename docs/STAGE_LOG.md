@@ -75,3 +75,36 @@ WebSearch (standard and extended modes), about 20 queries, including:
 
 ### 6. Stage 01 status
 **Extraction carried out to the limit of the available access; acceptance criteria not met** (see `PROGRESS.md`). Waiting on the owner for the access option (`CONTENT_GAPS.md` §A) and the confirmations.
+
+### 7. Partial approval (2026-10-15)
+The owner approved Stage 01 as a **partial** deliverable: the original website was not accessed directly and the extracted content remains unverified. Instructed: no further retries of inaccessible sites from this environment; do not claim extraction is complete. The remaining verification moved to parallel track V (`PROJECT_PLAN.md` §4), which gates Stage 09.
+
+---
+
+## Stage 02: Architecture & design specification (2026-10-15)
+
+### 1. Inputs reviewed
+`STAGE_00_DISCOVERY_REPORT.md`, `CONTENT_INVENTORY.md`, `ASSET_INVENTORY.md`, `ROUTE_MAP.md`, `CONTENT_GAPS.md`, `PROGRESS.md`, this log, and the confirmed decisions from the Stage 01/02 approvals (single `super_admin` role, no public accounts, no legacy migration, training site excluded, placeholders for unverified facts).
+
+### 2. Actions
+| Action | Result |
+|---|---|
+| Wrote the architecture | `ARCHITECTURE.md`: single service, npm workspaces, layering, pipeline, rendering/SEO, security zones, config, local dev, deployment, testing |
+| Wrote the database schema | `DATABASE_SCHEMA.md`: 14 collections; pricing/blog/training/team evaluated and not created; section registry (15 types); indexes; deletion policy; seeding |
+| Wrote the API contract | `API_REFERENCE.md`: envelope, error codes, auth/security model, public/auth/admin endpoints, security matrix |
+| Wrote the design system | `DESIGN_SYSTEM.md`: **provisional** palette with computed contrast ratios, typography, layout, motion, states, components, section designs, navigation, page compositions, budgets, admin UI |
+| Wrote the admin workflows | `ADMIN_GUIDE.md`: workflow specification (becomes the user guide in Stage 08) |
+| Wrote the decision log | `DECISIONS.md`: D-001…D-036 with status; Stage 00 superseded items listed |
+| Wrote the project plan | `PROJECT_PLAN.md`: scope, stages 03–10 with acceptance criteria, track V, decision gates |
+| Reclassified the routes | `ROUTE_MAP.md`: Known / Inferred / New / Needs confirmation; admin routes added |
+| Updated the README | Project status and documentation index (no setup instructions yet; nothing to install) |
+| Left unchanged | `CONTENT_INVENTORY.md` (its proposed routes already match `ROUTE_MAP.md`), `ASSET_INVENTORY.md`, `CONTENT_GAPS.md`, `STAGE_00_DISCOVERY_REPORT.md` (historical) |
+
+### 3. Validation
+| Check | Result |
+|---|---|
+| Contrast ratios | Computed with the WCAG formula for every documented pair (scratch script, not committed). Two failing pairs found and banned: `accent-600` on navy (2.81) and `neutral-400` on white (2.60). |
+| Cross-document consistency | Decision IDs referenced in other docs all exist in `DECISIONS.md`; collection, endpoint and route names agree across `DATABASE_SCHEMA.md`, `API_REFERENCE.md`, `ADMIN_GUIDE.md`, `ROUTE_MAP.md`; upload limit unified at 10 MB; spam handling unified (stored as `spam`, never silently dropped) |
+| Invented content | None. Schema fields for leads mirror the indexed form; seeds use `[CONFIRM …]` placeholders; no metrics, prices, testimonials or client facts created |
+| Implementation | None. No code, no dependencies installed, no database touched |
+| External access | Not retried (per owner instruction) |

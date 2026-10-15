@@ -2,57 +2,79 @@
 
 | | |
 |---|---|
-| **Retrieval date** | 2026-10-15 |
-| **Source of legacy URLs** | Search-engine indexes only (`indexed_unverified`). No sitemap, `robots.txt` or crawl was possible (`STAGE_LOG.md` §2). |
-| **Excluded** | `training.bitbyteindia.com/*`: separate property, not migrated, no redirects from this site's code |
+| **Last updated** | 2026-10-15 (Stage 02: route classification + new public/admin route architecture) |
+| **Source of legacy URLs** | Search-engine indexes only (`indexed_unverified`). The live site has **not** been crawled (`STAGE_LOG.md`, Stage 01 §2). |
+| **Excluded** | `training.bitbyteindia.com/*`: separate property (D-003). Not migrated, no redirects. |
+
+## Route classes
+| Class | Meaning |
+|---|---|
+| **K: Known** | Legacy URL found in search indexes (not crawled live) |
+| **I: Inferred** | Page exists according to the indexed navigation, but its URL is unknown |
+| **N: New** | Proposed for the new site; no legacy equivalent |
+| **C: Needs confirmation** | Existence or purpose unknown; resolve when the live site or an export is available |
 
 ## 1. Host and protocol canonicalisation
 
-The index holds URLs on **both hosts and both protocols**: `https://www.bitbyteindia.com/careers/`, `https://bitbyteindia.com/cms-development`, `http://bitbyteindia.com/internet-of-things`. The new site must collapse them to one canonical origin.
+The index holds URLs on **both hosts and both protocols**: `https://www.bitbyteindia.com/careers/`, `https://bitbyteindia.com/cms-development`, `http://bitbyteindia.com/internet-of-things`.
 
 | From | To | Code | Notes |
 |---|---|---|---|
-| `http://bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | Handled at DNS/proxy/host level |
-| `http://www.bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | Plus an HSTS header after launch |
-| `https://bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | **Canonical host proposed as `www`.** `[CONFIRM CANONICAL HOST]`: needs Search Console data on which host currently ranks |
-| Trailing-slash variants (e.g. `/careers/`) | No-slash form (`/careers`) | 301 | The legacy site mixes both styles; the new site uses no trailing slash |
+| `http://bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | At the proxy/host level |
+| `http://www.bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | HSTS after launch |
+| `https://bitbyteindia.com/*` | `https://www.bitbyteindia.com/*` | 301 | Canonical host **proposed as `www`** (D-028, pending) |
+| Any path with a trailing slash (e.g. `/careers/`) | Same path without the slash | 301 | The new site uses no trailing slashes; handled generically by the server |
+| Upper-case paths | Lower-case | 301 | Normalisation |
 
-## 2. Page routes
+## 2. Public routes
 
-| # | Legacy URL (as indexed) | Status of legacy URL | Content purpose | Proposed new route | Redirect |
+| # | New route | Class | Legacy URL | Content source | Redirect required |
 |---|---|---|---|---|---|
-| 1 | `/` | Indexed | Homepage | `/` | — (same) |
-| 2 | `[UNKNOWN]` "About Us" | Menu item only; URL not indexed | Company story | `/about` | `[CONFIRM LEGACY URL]` → `/about` (301) |
-| 3 | `[UNKNOWN]` "Company" | Menu item only; purpose unknown | Possibly a dropdown parent | `/about` (provisional) | Decide after inspection |
-| 4 | `[UNKNOWN]` "SERVICES" | Menu parent; no page found | Services overview | `/services` | — |
-| 5 | `[UNKNOWN]` Web Development | Menu item; `/web-development` not found in index | Service detail | `/services/web-development` | `[CONFIRM LEGACY URL]` → new (301) |
-| 6 | `/internet-of-things` | Indexed (http, apex) | Service detail | `/services/internet-of-things` | **301 `/internet-of-things` → `/services/internet-of-things`** |
-| 7 | `[UNKNOWN]` Mobile App Development | Menu item; `/mobile-app-development` not found in index | Service detail | `/services/mobile-app-development` | `[CONFIRM LEGACY URL]` → new (301) |
-| 8 | `/cms-development` | Indexed | Service detail (menu label "CMS SOLUTIONS") | `/services/cms-development` | **301 `/cms-development` → `/services/cms-development`** |
-| 9 | `/digital-marketing` | Indexed | Service detail | `/services/digital-marketing` | **301 `/digital-marketing` → `/services/digital-marketing`** |
-| 10 | `/portfolio` | Indexed | Project listing with category filters | `/portfolio` | — (same) |
-| 11 | `[UNKNOWN]` project detail pages | Unknown whether they exist | Case studies | `/portfolio/:slug` | Map each one if found |
-| 12 | `/careers/` | Indexed (www, trailing slash) | Culture + openings | `/careers` | 301 slash variant → `/careers` |
-| 13 | `[UNKNOWN]` individual job pages | Unknown | Job detail | `/careers/:slug` | — |
-| 14 | `/contact` | Indexed | Contact details + project enquiry form | `/contact` | — (same) |
-| 15 | `[UNKNOWN]` "Get Started with us" | Nav CTA; target unknown | Lead capture | `/contact` (provisional) | Map if it's a separate URL |
-| 16 | `[UNKNOWN]` privacy / terms | Not found in index; existence unknown | Legal | `/privacy-policy`, `/terms` | Map if legacy URLs exist |
-| 17 | `/sitemap.xml`, `/robots.txt` | Not fetched | SEO | Generated by the new server | — |
-| — | New, no legacy equivalent | — | Lead-form thank-you state, 404 | `/contact` (inline success), `*` → 404 | — |
+| 1 | `/` | **K** | `/` | `pages` (template `home`) | — |
+| 2 | `/about` | **I** | `[UNKNOWN]`: "About Us" menu item | `pages` (`about`) | When legacy URL known → 301 |
+| 3 | `/services` | **I** | `[UNKNOWN]`: "SERVICES" menu parent (may not be a page) | `pages` (`services-index`) | If a legacy URL exists → 301 |
+| 4 | `/services/web-development` | **I** | `[UNKNOWN]`: menu item; `/web-development` not indexed | `services` | When known → 301 |
+| 5 | `/services/internet-of-things` | **K** | `/internet-of-things` | `services` | **301 `/internet-of-things`** |
+| 6 | `/services/mobile-app-development` | **I** | `[UNKNOWN]`: menu item; `/mobile-app-development` not indexed | `services` | When known → 301 |
+| 7 | `/services/cms-development` | **K** | `/cms-development` (menu label "CMS SOLUTIONS") | `services` | **301 `/cms-development`** |
+| 8 | `/services/digital-marketing` | **K** | `/digital-marketing` | `services` | **301 `/digital-marketing`** |
+| 9 | `/portfolio` | **K** | `/portfolio` | `pages` (`portfolio-index`) + `projects` | — (path preserved) |
+| 10 | `/portfolio/:slug` | **N** / **C** | `[UNKNOWN]`: project detail pages may or may not exist | `projects` | Map each if found |
+| 11 | `/careers` | **K** | `/careers/` | `pages` (`careers`) + `jobOpenings` | Trailing-slash 301 (generic) |
+| 12 | `/careers/:slug` | **N** | — | `jobOpenings` | — |
+| 13 | `/contact` | **K** | `/contact` | `pages` (`contact`) | — (path preserved) |
+| 14 | `/privacy-policy` | **N** / **C** | Not indexed; existence unknown | `pages` (`legal`) | Map if a legacy URL exists |
+| 15 | `/terms` | **N** / **C** | Not indexed; existence unknown | `pages` (`legal`) | Map if a legacy URL exists |
+| 16 | `/:slug` | **N** | — | `pages` (`custom`, D-030) | — |
+| 17 | `[UNKNOWN]` "Company" | **C** | Menu item; purpose unknown | Probably a dropdown parent → `/about` | Decide after inspection |
+| 18 | `[UNKNOWN]` "Get Started with us" | **C** | Nav CTA; target unknown | Probably `/contact` | Map if it's a separate URL |
+| 19 | `/sitemap.xml`, `/robots.txt` | **N** | Not fetched | Generated by the server | — |
+| 20 | `*` | **N** | — | 404 page (HTTP 404) | — |
 
-**Admin area (new, not public, `noindex`):** `/admin/*`, served by the same app and blocked in `robots.txt`.
+**Valuable paths preserved:** `/`, `/portfolio` and `/contact` keep their URLs. `/careers` only loses its trailing slash. Service pages move under `/services/` for a clear hierarchy (better breadcrumbs and structured data), with 301s carrying any existing ranking.
 
-## 3. Redirect rules ready for implementation (confirmed from the index)
+**Alternative (owner choice):** keep the service URLs at the top level (`/internet-of-things`, …) to avoid redirects entirely. Recommended against: the redirect costs little, and the nested structure scales better.
 
+## 3. Redirect rules confirmed from the index (seeded into `redirects`)
 ```
 301  /internet-of-things   → /services/internet-of-things
 301  /cms-development      → /services/cms-development
 301  /digital-marketing    → /services/digital-marketing
-301  /careers/             → /careers
+(generic) trailing slash   → no trailing slash   (covers /careers/)
 ```
-The rest of the redirect list waits on the legacy URLs marked `[UNKNOWN]` above. These redirects will live in the `redirects` collection so the super admin can maintain them.
+Further entries will be added when the routes marked **I**/**C** are resolved. Slug changes made later in the CMS create redirects automatically (`DATABASE_SCHEMA.md` §3.12).
 
-## 4. Inputs needed to finish this map
-1. A full crawl of the live site (requires network access; see `CONTENT_GAPS.md` §A), **or**
-2. A Google Search Console export (Pages → Indexed, plus Performance → Pages, last 16 months), which also shows which URLs carry traffic, **or**
-3. A file listing of the current hosting account (routes are probably file- or CMS-based).
+## 4. Non-public routes (new)
+| Route | Purpose | Protection |
+|---|---|---|
+| `/admin/login` | Super-admin sign-in | Rate-limited; `noindex` |
+| `/admin`, `/admin/*` | Admin dashboard (`ADMIN_GUIDE.md`) | UX guard client-side; **all data via `/api/v1/admin/*`, which enforces `super_admin` server-side**; `noindex`; disallowed in `robots.txt` |
+| `/admin/preview/:entity/:id` | Draft preview | Same as above; `X-Robots-Tag: noindex` |
+| `/api/v1/*` | REST API (`API_REFERENCE.md`) | Disallowed in `robots.txt` |
+
+## 5. Inputs still needed (from Stage 01)
+1. A crawl of the live site (network access), **or**
+2. A Google Search Console export (indexed pages + pages with traffic), **or**
+3. The hosting file listing or site export.
+
+These resolve rows 2, 3, 4, 6, 10, 14, 15, 17 and 18.
