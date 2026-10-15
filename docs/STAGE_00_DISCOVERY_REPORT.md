@@ -1,5 +1,7 @@
 # BitByte Website Rebuild — Stage 00: Discovery & Master Planning Report
 
+> **Amended at approval (2026-10-15).** Approved with these changes, which take precedence over the text below: (1) there is no legacy application or database, so §1.3, §5.4 and Q2 no longer apply; (2) `training.bitbyteindia.com` stays a separate property, so the `trainingPrograms` collection and Q3 are dropped; (3) there is exactly one administrative role, `super_admin`, with no public accounts, which supersedes §6.1 and Q13. See `docs/PROGRESS.md`.
+
 | | |
 |---|---|
 | **Status** | Awaiting approval. Nothing in this report has been implemented. |
