@@ -62,8 +62,22 @@ export async function expectNoAxeViolations(page, { include, exclude } = {}) {
   expect(summary, summary.join('\n')).toEqual([]);
 }
 
+/**
+ * Horizontal overflow in px once the current layout has rendered. After `setViewportSize`,
+ * Chromium re-evaluates width media queries on the next rendering frame; measuring before that
+ * can see the new viewport laid out with the previous breakpoint's styles. Two frames make sure
+ * the measurement reflects what a visitor at this width actually sees.
+ */
 export async function horizontalOverflow(page) {
   return page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const root = document.documentElement;
+            resolve(root.scrollWidth - root.clientWidth);
+          }),
+        );
+      }),
   );
 }

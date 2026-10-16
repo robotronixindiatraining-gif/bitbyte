@@ -278,9 +278,10 @@ Declarative router (−17.5 KB gzip), self-hosted latin-only variable fonts with
 | Mobile drawer listeners never attached when navigation loaded after the first render (scroll lock would stick) | Effect re-runs when the menu appears; closing is idempotent |
 | axe: contact details `<dl>` had invalid children | Rendered as a list |
 | Lint: `setState` in effects, impure `Date.now()` during render, dialog click handler | Render-time state adjustment, effect-based timestamp, listener attached in an effect |
+| CI run #8: the catalogue 360 px overflow test intermittently saw 26 px — it measured straight after `setViewportSize`, before Chromium re-evaluated width media queries (elements still had the desktop 40 px gutter) | `horizontalOverflow` waits two animation frames; reproduced locally with a cold Vite cache, then 0 failures in 12 cold runs |
 
 ### 4. Verification
-`npm run check` green: no-TS, contrast 48/48, lint, format, 395 unit/integration tests, build, bundle 108.4 KiB, smoke 14/14, 20 browser tests. Manual run of the production server against a throwaway MongoDB with published sample content: bootstrap path, title template and draft isolation confirmed; database deleted. CI: GitHub Actions run #7 on `9e8f7d6` succeeded. Details in `PROGRESS.md`.
+`npm run check` green: no-TS, contrast 48/48, lint, format, 395 unit/integration tests, build, bundle 108.4 KiB, smoke 14/14, 20 browser tests. Manual run of the production server against a throwaway MongoDB with published sample content: bootstrap path, title template and draft isolation confirmed; database deleted. CI: GitHub Actions run #7 on `9e8f7d6` succeeded; run #8 exposed the overflow-measurement race above, fixed in a follow-up commit. Details in `PROGRESS.md`.
 
 ### 5. Not done (by scope)
 Inner public pages and their fixed templates (Stage 07), admin UI (Stage 08), Lighthouse runs (Stage 07), manual screen-reader/zoom/forced-colours checks (Stage 09), real Turnstile verification (credentials), any business content.
