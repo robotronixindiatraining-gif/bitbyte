@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Approved in Stage 02 with refinements (D-018–D-041). Stage 03 built the foundation; Stage 04 added the database layer, admin security, CLI and seed; **Stage 05 added the CMS, media, lead, retention and SEO APIs** (D-049–D-058). §12 lists what exists today. |
+| **Status** | Approved in Stage 02 with refinements (D-018–D-041). Stage 03 built the foundation; Stage 04 added the database layer, admin security, CLI and seed; Stage 05 added the CMS, media, lead, retention and SEO APIs (D-049–D-058); **Stage 06 added the design system, navigation, section renderers and homepage** (D-059–D-066). §12 lists what exists today. |
 | **Related** | `DATABASE_SCHEMA.md`, `API_REFERENCE.md`, `DESIGN_SYSTEM.md`, `ADMIN_GUIDE.md`, `ROUTE_MAP.md`, `DECISIONS.md` |
 | **Constraints** | MongoDB, Express, React, Node.js, Tailwind CSS. **JavaScript only, no TypeScript anywhere.** One administrative role (`super_admin`); public visitors are anonymous. |
 
@@ -49,51 +49,43 @@ bitbyte/
 
 ## 3. Client (`client/`)
 
-### 3.1 Structure
+### 3.1 Structure (as built in Stage 06; admin and inner pages follow in Stages 07–08)
 ```
 client/src/
-├─ main.jsx                 bootstraps router + QueryClient; reads injected bootstrap data
+├─ main.jsx                 initMotion(), QueryClient, BrowserRouter
 ├─ app/
-│  ├─ router.jsx            route tree (public + admin), lazy-loaded route modules
-│  ├─ providers.jsx         QueryClientProvider, error boundary, toast region
-│  └─ RouteErrorBoundary.jsx
-├─ layouts/
-│  ├─ PublicLayout.jsx      header, main, footer; skip link; consumes site settings
-│  ├─ AdminLayout.jsx       sidebar, top bar, auth guard (UX only — server enforces)
-│  └─ PreviewLayout.jsx     PublicLayout + "Preview — not published" bar + noindex
-├─ components/
-│  ├─ ui/                   design primitives (Button, Link, Container, Section, Heading, Text,
-│  │                        Card, Badge, Chip, Input, Textarea, Select, Checkbox, Field,
-│  │                        Dialog, Drawer, Tabs, Toast, Skeleton, VisuallyHidden, Icon)
-│  ├─ media/                ResponsiveImage, Logo, BitGrid (hero visual)
-│  ├─ motion/               Reveal, useInView, useReducedMotion, viewTransition helpers
-│  └─ seo/                  JsonLd, PageMeta (React 19 native <title>/<meta>)
-├─ sections/                one folder per section type (renderer only)
-│  ├─ registry.js           type → lazy renderer; mirrors shared/sections
-│  └─ Hero/ RichText/ ServiceGrid/ ProjectShowcase/ Testimonials/ Stats/ FeatureList/
-│     ProcessSteps/ SplitContent/ CtaBanner/ Faq/ EngagementModels/ ContactForm/
-│     JobList/ ClientLogos/
-├─ features/                domain modules: api hooks + feature components
-│  ├─ site/  services/  projects/  testimonials/  careers/  contact/  pages/
-│  └─ admin/ auth/ dashboard/ pages-editor/ services/ projects/ testimonials/ careers/
-│            media-library/ leads/ settings/ seo/ redirects/ administrators/ audit-log/
-├─ pages/                   thin route components (public/*, admin/*)
-├─ services/api/
-│  ├─ client.js             fetch wrapper: base URL, JSON, credentials, error normalisation,
-│  │                        X-Requested-With header, 401 → redirect to /admin/login
-│  └─ public.js admin.js auth.js   one function per endpoint (no fetch calls elsewhere)
-├─ hooks/  lib/  utils/
-└─ styles/index.css         Tailwind v4 entry; design tokens in @theme (see DESIGN_SYSTEM.md)
+│  ├─ routes.jsx            declarative route table (D-059); dev-only catalogue route
+│  ├─ ErrorBoundary.jsx     last-resort error UI (details to the console only)
+│  └─ queryClient.js
+├─ layouts/                 RootLayout (skip link, header, main, footer), SiteHeader, MegaMenu,
+│                           MobileNav (native <dialog>), SiteFooter, navigation.js, pageChrome.js
+├─ components/ui/           primitives: Button, SmartLink (+ links.js), Section/Container,
+│                           Typography (Heading/Eyebrow/Lead/SectionHeader), Card/Badge,
+│                           Icon/IconTile, ResponsiveImage, BitGrid, States, Disclosure,
+│                           Reveal + motion.js, Wordmark
+├─ sections/                one renderer per section type + SectionRenderer.jsx (registry)
+├─ pages/                   HomePage, NotFoundPage
+├─ features/
+│  ├─ content/              bootstrap.js (server-injected data), queries.js (public API hooks),
+│  │                        useDocumentTitle.js
+│  └─ leads/                LeadForm (lazy chunk), turnstile.js
+├─ services/api/client.js   the only fetch wrapper (envelope, X-Requested-With, errors)
+├─ dev/                     component catalogue + fixtures (development server only, D-064)
+├─ test/                    setup, renderApp/stubApi helpers
+└─ styles/                  index.css (tokens, surfaces, prose, motion), fonts.css
 ```
+Planned for later stages (unchanged from Stage 02): admin layout and features (08), preview layout (08), inner public pages (07).
 
 ### 3.2 Rules
-- **No business content in components.** Text, images, links, contact details and SEO come from the API. Components may only hold UI microcopy that isn't business content (e.g. "Close menu", "Loading…"), kept in `client/src/lib/ui-strings.js`.
-- **Data fetching** goes through TanStack Query hooks in `features/*/api.js`, which call `services/api/*`. Components never call `fetch` directly.
-- **Code splitting:** the admin area, the rich-text editor and drag-and-drop are separate lazy chunks. A public visitor never downloads admin code.
-- **Section rendering:** a page's `sections[]` is mapped through `sections/registry.js`. An unknown type renders nothing in production and a visible warning in preview.
+- **No business content in components.** Text, images, links, contact details and SEO come from the API. Components hold only interface microcopy that isn't business content (e.g. "Close menu", "Explore service"); it lives next to the components that use it and is listed for owner review in `CONTENT_GAPS.md` CG-29.
+- **Data fetching** goes through TanStack Query hooks (`features/content/queries.js`), which call `services/api/client.js`. Components never call `fetch` directly. The first render uses the server's bootstrap JSON when it was rendered for the current path (D-063).
+- **Code splitting:** the enquiry form (with zod) is a lazy chunk; the admin area, the rich-text editor and drag-and-drop will be too. The development catalogue is not in production builds at all. `npm run check:bundle` enforces the 120 KB initial-JS budget.
+- **Section rendering:** a page's `sections[]` is mapped through `sections/SectionRenderer.jsx`. Sections without content are hidden, each section has its own error boundary, and an unknown type renders nothing in production and a visible warning in development.
 - **SSR-safe components:** no `window`/`document` access at module scope, so a move to server rendering stays possible later (D-007).
 
-### 3.3 Routing (React Router, data/library mode)
+### 3.3 Routing (React Router, declarative mode — D-059)
+Implemented in Stage 06: `/` (homepage), `*` (404) and, on the development server only, `/__dev/catalogue`. The table is the target route set.
+
 | Pattern | Layout | Data |
 |---|---|---|
 | `/` , `/about`, `/services`, `/portfolio`, `/careers`, `/contact`, `/privacy-policy`, `/terms` | Public | `GET /public/pages/:slug` (fixed-template pages) |
@@ -109,7 +101,7 @@ The full public route list with legacy redirects is in `ROUTE_MAP.md`.
 
 ### 3.4 State
 - **Server state:** TanStack Query (cache, retries, invalidation after mutations).
-- **Form state:** React Hook Form + zod resolver, using schemas from `shared/`.
+- **Form state:** local state validated with the shared zod schemas (the enquiry form uses `leadSubmissionSchema`). A form library will be added only if the admin forms need it (Stage 08).
 - **UI state:** local component state. No global store library is needed.
 - **Auth state:** `GET /auth/session` query. The admin route guard is cosmetic; every admin API call is authorised server-side.
 
@@ -266,14 +258,14 @@ Client build-time variables (`VITE_*`) carry **no secrets**; public keys such as
 ## 11. Testing strategy
 | Layer | Tool | Covers |
 |---|---|---|
-| Shared | Vitest | Section/entity schemas, slug and placeholder rules |
-| Server unit | Vitest | Services: publish, revisions, references, sanitisation, lockout |
-| Server integration | Vitest + Supertest + mongodb-memory-server | Every endpoint: auth (401/403), validation (422), conflicts (409), published-only visibility, rate limits |
-| Client | Vitest + Testing Library | Primitives, section renderers, forms |
-| End-to-end | Playwright (+ axe) | Visitor journeys, lead submission, admin login → edit → preview → publish, keyboard navigation, accessibility per template |
-| Performance | Lighthouse CI | Budgets in `DESIGN_SYSTEM.md` §11 |
+| Shared | Vitest | Section/entity schemas, slug and placeholder rules, lead schema |
+| Server | Vitest + Supertest + mongodb-memory-server | Every endpoint: auth (401/403), validation (422), conflicts (409), published-only visibility, rate limits; providers mocked |
+| Client | Vitest + Testing Library + user-event (jsdom) | All 15 renderers on all surfaces, minimal data, empty/unknown/failing sections, link safety, homepage states, bootstrap use, navigation keyboard behaviour, drawer, reduced motion, lead form |
+| Browser | Playwright 1.56.1 + axe (`e2e/`, D-066) | Production build with mocked API: 5 viewport widths, axe WCAG 2.2 A/AA, landmarks and skip link, mega-menu and drawer keyboard/focus, reduced motion, holding/error states, catalogue absent from production; dev catalogue: all sections × surfaces with axe |
+| Tooling | scripts | No TypeScript, contrast of every token pair, initial-JS budget, production smoke test |
+| Performance | Lighthouse CI | Stage 07 (budgets in `DESIGN_SYSTEM.md` §11) |
 
-## 12. Implementation status (after Stage 05)
+## 12. Implementation status (after Stage 06)
 | Area | Exists now | Arrives in |
 |---|---|---|
 | Workspaces | `client/`, `server/`, `shared/`; root scripts; CI workflow | — |
@@ -286,8 +278,8 @@ Client build-time variables (`VITE_*`) carry **no secrets**; public keys such as
 | Routes | Everything in `API_REFERENCE.md` (Appendix A lists all 97 admin routes) | — |
 | CLI | `admin:create`, `admin:list`, `admin:reset-password`, `admin:reset-2fa`, `seed`, `secrets:generate`, `retention:run` (dry run by default); production requires `--allow-production` | — |
 | Shared | Error codes, auth input rules, zod helpers, content schema factory (draft/publish, optional sanitiser), section registry and template rules, lead submission schema (provisional fields), placeholder scanner, reserved slugs, `slugify` | — |
-| Client | Vite + React 19 + Tailwind v4 tokens (provisional palette), router, query client, API client, foundation page, 404 | Design system (06), public pages (07), admin (08) |
-| Quality | ESLint, Prettier, Vitest; integration tests on an in-memory MongoDB with mocked providers; API contract test; coverage report (`npm run test:coverage -w server`); no-TypeScript guard; smoke test | Playwright + axe (06), Lighthouse CI (07) |
+| Client | Design system (tokens, fonts, primitives, motion), header/mega-menu/drawer/footer from published settings, all 15 section renderers, homepage with bootstrap data, holding/error/404 states, lazy enquiry form, development catalogue | Inner public pages (07), admin (08) |
+| Quality | ESLint, Prettier, Vitest; integration tests on an in-memory MongoDB with mocked providers; API contract test; coverage report; no-TypeScript guard; contrast check; bundle budget; smoke test; Playwright + axe browser tests | Lighthouse CI (07) |
 
 ### 12.1 Request pipeline additions (Stage 04)
 `/api/v1/auth` and `/api/v1/admin` run, in order: origin check (D-012) → cookie parsing → session resolution (`req.auth = { session, admin }`) → `Cache-Control: no-store` → route guards. `/admin` adds `requireSuperAdmin()` and the admin rate limiter at router level; step-up and validation are attached per route from the declarative route table.

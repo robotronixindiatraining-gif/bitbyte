@@ -30,8 +30,15 @@ export default [
       'scripts/**/*.js',
       '*.config.js',
       'client/vite.config.js',
+      'e2e/**/*.js',
     ],
     languageOptions: { globals: globals.node },
+  },
+
+  // Browser tests: Node code whose page.evaluate() callbacks run in the browser.
+  {
+    files: ['e2e/**/*.js'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
 
   // Browser: React client.
@@ -48,6 +55,9 @@ export default [
     settings: { react: { version: 'detect' } },
     rules: {
       'react/prop-types': 'off',
+      // Tailwind removes list markers, and Safari/VoiceOver then drops list semantics unless
+      // role="list" is set explicitly, so that one "redundant" role is intentional.
+      'jsx-a11y/no-redundant-roles': ['error', { ul: ['list'], ol: ['list'] }],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },

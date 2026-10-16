@@ -1,15 +1,18 @@
 @import 'tailwindcss';
+@import './fonts.css';
 
 /*
- * Design tokens — docs/DESIGN_SYSTEM.md.
+ * Design tokens — docs/DESIGN_SYSTEM.md §2–§6.
  * ⚠ PROVISIONAL PALETTE (D-024): to be re-derived from the real logo before launch.
  * Tailwind's default colours are cleared so components can only use project tokens.
- * Fonts are self-hosted in Stage 06 (D-023); until then the system fallbacks apply.
+ * Contrast of every semantic pair is checked by `npm run check:contrast`.
  */
 @theme {
   --color-*: initial;
   --color-white: #ffffff;
   --color-black: #000000;
+  --color-transparent: transparent;
+  --color-current: currentColor;
 
   --color-navy-950: #070f24;
   --color-navy-900: #0b1a3a;
@@ -38,12 +41,37 @@
   --color-warning-700: #8a5a00;
   --color-danger-600: #c42b2b;
 
+  /* Size-adjusted local fallbacks (metrics measured from the font files) keep layout stable
+     while the web fonts load (font-display: swap). */
   --font-display:
-    'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
-    sans-serif;
-  --font-sans:
-    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    'Plus Jakarta Sans Variable', 'Plus Jakarta Sans Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Inter Variable', 'Inter Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono Fallback', ui-monospace, monospace;
+
+  /* Fluid type scale, 360 px → 1440 px (§3.1). */
+  --text-display: clamp(2.5rem, 1.6rem + 3.6vw, 4.5rem);
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.02em;
+  --text-h1: clamp(2.25rem, 1.7rem + 2.2vw, 3.5rem);
+  --text-h1--line-height: 1.1;
+  --text-h1--letter-spacing: -0.02em;
+  --text-h2: clamp(1.75rem, 1.4rem + 1.4vw, 2.5rem);
+  --text-h2--line-height: 1.15;
+  --text-h2--letter-spacing: -0.015em;
+  --text-h3: clamp(1.25rem, 1.15rem + 0.5vw, 1.625rem);
+  --text-h3--line-height: 1.25;
+  --text-h3--letter-spacing: -0.01em;
+  --text-h4: 1.125rem;
+  --text-h4--line-height: 1.35;
+  --text-lead: clamp(1.0625rem, 1rem + 0.3vw, 1.25rem);
+  --text-lead--line-height: 1.6;
+  --text-body: 1rem;
+  --text-body--line-height: 1.65;
+  --text-small: 0.875rem;
+  --text-small--line-height: 1.5;
+  --text-eyebrow: 0.75rem;
+  --text-eyebrow--line-height: 1.4;
+  --text-eyebrow--letter-spacing: 0.12em;
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -53,30 +81,206 @@
   --shadow-sm: 0 1px 2px rgb(7 15 36 / 0.06);
   --shadow-md: 0 2px 4px rgb(7 15 36 / 0.04), 0 8px 24px -8px rgb(7 15 36 / 0.12);
   --shadow-lg: 0 24px 48px -16px rgb(7 15 36 / 0.2);
+  --shadow-glow: 0 0 0 1px rgb(91 140 255 / 0.25), 0 16px 40px -16px rgb(47 107 255 / 0.45);
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --duration-reveal: 560ms;
+}
+
+/*
+ * Semantic tokens (§2.3). Components use these, never the palette directly, so the same
+ * component works on light, muted and dark surfaces. Each surface class remaps them.
+ */
+@theme inline {
+  --color-bg: var(--s-bg);
+  --color-surface: var(--s-surface);
+  --color-surface-raised: var(--s-surface-raised);
+  --color-fg: var(--s-fg);
+  --color-fg-body: var(--s-fg-body);
+  --color-fg-muted: var(--s-fg-muted);
+  --color-fg-subtle: var(--s-fg-subtle);
+  --color-border: var(--s-border);
+  --color-border-strong: var(--s-border-strong);
+  --color-primary: var(--s-primary);
+  --color-primary-hover: var(--s-primary-hover);
+  --color-primary-fg: var(--s-primary-fg);
+  --color-link: var(--s-link);
+  --color-link-hover: var(--s-link-hover);
+  --color-highlight: var(--s-highlight);
+  --color-tile: var(--s-tile);
+  --color-tile-fg: var(--s-tile-fg);
+  --color-focus: var(--s-focus);
+  --color-bit-off: var(--s-bit-off);
+  --color-bit-off-stroke: var(--s-bit-off-stroke);
+  --color-bit-on: var(--s-bit-on);
+  --color-bit-on-strong: var(--s-bit-on-strong);
+}
+
+@utility surface-light {
+  --s-bg: var(--color-neutral-0);
+  --s-surface: var(--color-neutral-0);
+  --s-surface-raised: var(--color-neutral-0);
+  --s-fg: var(--color-neutral-900);
+  --s-fg-body: var(--color-neutral-700);
+  --s-fg-muted: var(--color-neutral-600);
+  --s-fg-subtle: var(--color-neutral-500);
+  --s-border: var(--color-neutral-200);
+  --s-border-strong: var(--color-neutral-300);
+  --s-primary: var(--color-accent-600);
+  --s-primary-hover: var(--color-accent-700);
+  --s-primary-fg: var(--color-white);
+  --s-link: var(--color-accent-600);
+  --s-link-hover: var(--color-accent-700);
+  --s-highlight: var(--color-accent-600);
+  --s-tile: var(--color-accent-100);
+  --s-tile-fg: var(--color-accent-700);
+  --s-focus: var(--color-accent-600);
+  --s-bit-off: var(--color-neutral-100);
+  --s-bit-off-stroke: var(--color-neutral-200);
+  --s-bit-on: var(--color-accent-500);
+  --s-bit-on-strong: var(--color-accent-600);
+  background-color: var(--s-bg);
+  color: var(--s-fg-body);
+}
+
+@utility surface-muted {
+  --s-bg: var(--color-neutral-50);
+  --s-surface: var(--color-neutral-0);
+  --s-surface-raised: var(--color-neutral-0);
+  --s-fg: var(--color-neutral-900);
+  --s-fg-body: var(--color-neutral-700);
+  --s-fg-muted: var(--color-neutral-600);
+  --s-fg-subtle: var(--color-neutral-500);
+  --s-border: var(--color-neutral-200);
+  --s-border-strong: var(--color-neutral-300);
+  --s-primary: var(--color-accent-600);
+  --s-primary-hover: var(--color-accent-700);
+  --s-primary-fg: var(--color-white);
+  --s-link: var(--color-accent-600);
+  --s-link-hover: var(--color-accent-700);
+  --s-highlight: var(--color-accent-600);
+  --s-tile: var(--color-accent-100);
+  --s-tile-fg: var(--color-accent-700);
+  --s-focus: var(--color-accent-600);
+  --s-bit-off: var(--color-neutral-100);
+  --s-bit-off-stroke: var(--color-neutral-200);
+  --s-bit-on: var(--color-accent-500);
+  --s-bit-on-strong: var(--color-accent-600);
+  background-color: var(--s-bg);
+  color: var(--s-fg-body);
+}
+
+@utility surface-dark {
+  --s-bg: var(--color-navy-950);
+  --s-surface: var(--color-navy-900);
+  --s-surface-raised: var(--color-navy-800);
+  --s-fg: var(--color-white);
+  --s-fg-body: var(--color-neutral-300);
+  --s-fg-muted: var(--color-neutral-300);
+  --s-fg-subtle: var(--color-neutral-400);
+  --s-border: rgb(255 255 255 / 0.1);
+  --s-border-strong: rgb(255 255 255 / 0.22);
+  --s-primary: var(--color-accent-400);
+  --s-primary-hover: var(--color-accent-300);
+  --s-primary-fg: var(--color-navy-950);
+  --s-link: var(--color-accent-300);
+  --s-link-hover: var(--color-white);
+  --s-highlight: var(--color-accent-300);
+  --s-tile: var(--color-navy-800);
+  --s-tile-fg: var(--color-accent-300);
+  --s-focus: var(--color-accent-300);
+  --s-bit-off: var(--color-navy-800);
+  --s-bit-off-stroke: var(--color-navy-700);
+  --s-bit-on: var(--color-accent-500);
+  --s-bit-on-strong: var(--color-accent-400);
+  background-color: var(--s-bg);
+  color: var(--s-fg-body);
+  color-scheme: dark;
+}
+
+/* Content container: 1240 px with 20 / 32 / 40 px gutters (§4). */
+@utility container-site {
+  width: 100%;
+  max-width: calc(1240px + 2 * 40px);
+  margin-inline: auto;
+  padding-inline: 20px;
+  @media (width >= 40rem) {
+    padding-inline: 32px;
+  }
+  @media (width >= 64rem) {
+    padding-inline: 40px;
+  }
+}
+
+@utility section-space {
+  padding-block: 80px;
+  @media (width >= 48rem) {
+    padding-block: 112px;
+  }
+  @media (width >= 64rem) {
+    padding-block: 128px;
+  }
+}
+
+@utility section-space-compact {
+  padding-block: 56px;
+  @media (width >= 48rem) {
+    padding-block: 72px;
+  }
+  @media (width >= 64rem) {
+    padding-block: 88px;
+  }
+}
+
+@utility text-pretty {
+  text-wrap: pretty;
 }
 
 @layer base {
   :root {
     color-scheme: light;
+    --header-h: 64px;
+    @media (width >= 64rem) {
+      --header-h: 72px;
+    }
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-padding-top: calc(var(--header-h) + 16px);
   }
 
   body {
-    @apply bg-neutral-0 font-sans text-neutral-700 antialiased;
+    @apply surface-light font-sans text-body antialiased;
+    font-optical-sizing: auto;
   }
 
   h1,
   h2,
-  h3 {
-    @apply font-display text-neutral-900;
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    color: var(--s-fg);
     text-wrap: balance;
   }
 
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Visible focus on every surface (§7): 2 px outline, 2 px offset. */
   :focus-visible {
-    outline: 2px solid var(--color-accent-600);
+    outline: 2px solid var(--s-focus, var(--color-accent-600));
     outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-accent-100);
+    color: var(--color-navy-950);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -84,9 +288,262 @@
     ::before,
     ::after {
       animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+  }
+}
+
+@layer components {
+  /* Inline links: underline thickens on hover (§7). */
+  .link-inline {
+    color: var(--s-link);
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+    transition:
+      color var(--duration-fast) var(--ease-out),
+      text-decoration-thickness var(--duration-fast) var(--ease-out);
+  }
+  .link-inline:hover {
+    color: var(--s-link-hover);
+    text-decoration-thickness: 2px;
+  }
+
+  /* Rich text from the CMS (already sanitised server-side, Stage 05). */
+  .prose-site {
+    max-width: 68ch;
+    color: var(--s-fg-body);
+    font-size: var(--text-body);
+    line-height: 1.7;
+  }
+  .prose-site > * + * {
+    margin-top: 1.1em;
+  }
+  .prose-site h2,
+  .prose-site h3,
+  .prose-site h4 {
+    margin-top: 1.8em;
+    font-weight: 700;
+  }
+  .prose-site h2 {
+    font-size: var(--text-h3);
+    line-height: 1.25;
+  }
+  .prose-site h3 {
+    font-size: var(--text-h4);
+  }
+  .prose-site h4 {
+    font-size: 1rem;
+  }
+  .prose-site a {
+    color: var(--s-link);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .prose-site a:hover {
+    color: var(--s-link-hover);
+    text-decoration-thickness: 2px;
+  }
+  .prose-site strong {
+    color: var(--s-fg);
+    font-weight: 600;
+  }
+  .prose-site ul,
+  .prose-site ol {
+    padding-left: 1.25em;
+  }
+  .prose-site ul {
+    list-style: none;
+  }
+  .prose-site ul > li {
+    position: relative;
+  }
+  .prose-site ul > li::before {
+    content: '';
+    position: absolute;
+    left: -1.05em;
+    top: 0.72em;
+    width: 0.4em;
+    height: 0.4em;
+    border-radius: 2px;
+    background: var(--s-highlight);
+  }
+  .prose-site ol {
+    list-style: decimal;
+  }
+  .prose-site ol > li::marker {
+    color: var(--s-highlight);
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+  .prose-site li + li {
+    margin-top: 0.4em;
+  }
+  .prose-site blockquote {
+    border-left: 3px solid var(--s-highlight);
+    padding-left: 1.25em;
+    color: var(--s-fg);
+    font-size: var(--text-lead);
+  }
+  .prose-site code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    background: var(--s-tile);
+    color: var(--s-tile-fg);
+    border-radius: var(--radius-sm);
+    padding: 0.1em 0.35em;
+  }
+  .prose-site table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-small);
+  }
+  .prose-site th,
+  .prose-site td {
+    border-bottom: 1px solid var(--s-border);
+    padding: 0.6em 0.75em;
+    text-align: left;
+    vertical-align: top;
+  }
+  .prose-site th {
+    color: var(--s-fg);
+    font-weight: 600;
+  }
+}
+
+/*
+ * Scroll reveal (§6). Content is visible by default: the hidden start state applies only after
+ * JavaScript has confirmed IntersectionObserver support and no reduced-motion preference
+ * (the `motion-ok` class on <html>), so no-JS visitors and crawlers always see everything.
+ */
+html.motion-ok [data-reveal]:not([data-revealed]) {
+  opacity: 0;
+  transform: translateY(12px);
+}
+html.motion-ok [data-reveal] {
+  transition:
+    opacity var(--duration-reveal) var(--ease-out),
+    transform var(--duration-reveal) var(--ease-out);
+  transition-delay: calc(var(--reveal-i, 0) * 60ms);
+}
+
+/* BitGrid hero cascade: "on" bits light up once, then stay static (§9.1). */
+@keyframes bit-on {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.bitgrid-animate .bit-on {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bit-on 520ms var(--ease-out) both;
+  animation-delay: calc(var(--bit-i, 0) * 45ms + 200ms);
+}
+
+/* Dialog-based mobile drawer (native <dialog>: focus trap, Esc, inert background). */
+dialog.drawer {
+  max-width: none;
+  max-height: none;
+  width: 100%;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+dialog.drawer::backdrop {
+  background: rgb(7 15 36 / 0.6);
+}
+@media (prefers-reduced-motion: no-preference) {
+  dialog.drawer[open] {
+    animation: drawer-in var(--duration-slow) var(--ease-out);
+  }
+}
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@layer utilities {
+  /* No hover transforms without a hover-capable pointer, and none under reduced motion. */
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .hover-lift {
+      transition:
+        transform var(--duration-base) var(--ease-out),
+        box-shadow var(--duration-base) var(--ease-out),
+        border-color var(--duration-base) var(--ease-out);
+    }
+    .hover-lift:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+    .group:hover .group-hover-nudge {
+      transform: translateX(4px);
+    }
+  }
+  .group-hover-nudge {
+    transition: transform var(--duration-base) var(--ease-out);
+  }
+}
+
+@layer components {
+  /* Header navigation links (§9.6): accent underline marks the current page. */
+  .nav-link {
+    position: relative;
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    padding-inline: 0.75rem;
+    border-radius: var(--radius-md);
+    color: var(--s-fg);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    transition: color var(--duration-fast) var(--ease-out);
+  }
+  .nav-link:hover {
+    color: var(--s-link);
+  }
+  .nav-link-active::after,
+  .nav-link[aria-current='page']::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0.75rem;
+    bottom: 6px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--s-highlight);
+  }
+}
+
+@layer components {
+  /* Hero depth (§2.2, §9.1): one soft accent glow (≤ 20 %) plus a 4 % grid-line texture. */
+  .hero-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+  .hero-backdrop-dark {
+    background:
+      radial-gradient(60rem 36rem at 85% -10%, rgb(47 107 255 / 0.18), transparent 65%),
+      linear-gradient(rgb(255 255 255 / 0.04) 1px, transparent 1px) 0 0 / 56px 56px,
+      linear-gradient(90deg, rgb(255 255 255 / 0.04) 1px, transparent 1px) 0 0 / 56px 56px;
+    mask-image: linear-gradient(to bottom, black 55%, transparent);
+  }
+  .hero-backdrop-light {
+    background:
+      radial-gradient(56rem 32rem at 85% -10%, rgb(47 107 255 / 0.1), transparent 65%),
+      linear-gradient(rgb(7 15 36 / 0.04) 1px, transparent 1px) 0 0 / 56px 56px,
+      linear-gradient(90deg, rgb(7 15 36 / 0.04) 1px, transparent 1px) 0 0 / 56px 56px;
+    mask-image: linear-gradient(to bottom, black 55%, transparent);
   }
 }

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Stage 02 specification. Proposed, awaiting approval. |
+| **Status** | Stage 02 specification, **implemented in Stage 06** for the public site (tokens, typography, primitives, navigation, all 15 section renderers, homepage). §13 records what was built and where it differs from this specification. Admin UI (§12) follows in Stage 08. |
 | **Brand palette** | ⚠️ **PROVISIONAL.** The logo hasn't been obtained (`ASSET_INVENTORY.md` A-01). All colour values are a starting point and will be re-derived from the actual logo before launch (D-024). |
 | **Scope** | Public website and admin UI. A complete redesign: nothing is copied from the existing site's design. |
 | **Implementation** | Tailwind CSS v4 with tokens defined once in `client/src/styles/index.css` (`@theme`). Components use tokens only, never raw hex values. |
@@ -81,7 +81,7 @@ Each section variant (`light`, `muted`, `dark`) remaps these tokens, so componen
 1. Obtain the vector logo (SVG/AI/EPS/PDF).
 2. Extract its exact brand colour(s).
 3. Build the `accent-*` scale around the logo's primary hue (OKLCH lightness steps matched to the current scale). If the logo has a dark colour, map it to `navy-*`.
-4. Re-run the contrast table above (the script lives in `scripts/contrast-check.js`, added in Stage 06) and fix any failing pair.
+4. Re-run the contrast check (`npm run check:contrast`, `scripts/contrast-check.js`, part of `npm run check`) and fix any failing pair.
 5. Record the new values and results here and in `DECISIONS.md`.
 **Until then:** the header shows the company name as a text wordmark from `settings.general.companyName`. **No substitute logo is designed or invented.**
 
@@ -192,7 +192,7 @@ Nothing depends on hover: every hover reveal also exists in the default or focus
 - Optional trust row below the CTAs renders **only** from a published `stats` section. Nothing is shown by default.
 
 ### 9.2 `serviceGrid`: bento layout
-- **≥ 1024:** 3-column bento. The first (or featured) service spans 2 columns × 2 rows with a larger summary, its first 3 offerings as chips, and a faint BitGrid corner accent. The rest are standard cards. The layout adapts for 3–8 services so there is never a lone orphan card (the last row stretches).
+- **≥ 1024:** 3-column bento. The first service spans **2 columns × 1 row** with a larger summary and a BitGrid panel beside the text (Stage 06 change: the 2 × 2 version left a large empty area with real-length summaries); the rest are standard cards. The last card stretches so no row ends with a gap. (Offering chips are not shown: the public service card carries no offerings.)
 - **768–1023:** 2 columns. **< 768:** a single column of compact horizontal cards (icon left, title + summary, arrow right).
 - **Card:** icon tile, `h3` title, 2–3 line summary, "Explore service →". The whole card is one link. The `list` layout gives a numbered editorial list (mono numbers 01–05) for denser pages.
 
@@ -279,3 +279,82 @@ A bottom bar holds `© {current year} {copyrightHolder}` and legal links. The Bi
 - **Status badges:** Draft (neutral) · Published (`success-700`) · Unpublished changes (`warning-700`) · Archived (neutral-dark) · Placeholders *n* (`danger-600`).
 - **Destructive actions:** `danger` buttons, confirmation dialogs, and typed confirmation for permanent deletes.
 - Must be fully usable on a tablet (≥ 768 px). On phones, at least the leads inbox and lead status updates must work.
+
+## 13. Stage 06 implementation (as built)
+
+### 13.1 Where things live
+| Area | Files |
+|---|---|
+| Tokens, surfaces, prose, motion | `client/src/styles/index.css` (`@theme`, `surface-light/muted/dark`, `container-site`, `section-space*`, `.prose-site`, reveal and BitGrid keyframes) |
+| Fonts | `client/src/styles/fonts.css`; preload plugin in `client/vite.config.js` |
+| Primitives | `client/src/components/ui/`: `Button`/`LinkButton`, `SmartLink` (+ `links.js` safety), `Section`/`Container`, `Heading`/`Eyebrow`/`Lead`/`SectionHeader`, `Card`/`Badge`, `Icon`/`IconTile` (curated set), `ResponsiveImage`, `BitGrid`, `Skeleton`/`EmptyState`/`ErrorState`, `Disclosure`, `Reveal` + `motion.js`, `Wordmark` |
+| Navigation | `client/src/layouts/`: `SiteHeader`, `MegaMenu`, `MobileNav`, `SiteFooter`, `RootLayout`, `navigation.js` |
+| Sections | `client/src/sections/` (one file per type) + `SectionRenderer.jsx` (registry, hiding of empty sections, per-section error boundary, development warning for unknown types) |
+| Homepage | `client/src/pages/HomePage.jsx` |
+| Catalogue (dev only) | `client/src/dev/CataloguePage.jsx`, `client/src/dev/fixtures.js` |
+
+### 13.2 Semantic tokens (D-061)
+Each surface sets these CSS variables. Components use them as Tailwind colours (`bg-bg`, `bg-surface`, `text-fg`, `text-fg-body`, `text-fg-muted`, `text-fg-subtle`, `border-border`, `bg-primary`, `text-primary-fg`, `text-link`, `text-highlight`, `bg-tile`, `text-tile-fg`, `fill-bit-on`…).
+
+| Token | Light | Muted | Dark |
+|---|---|---|---|
+| bg | neutral-0 | neutral-50 | navy-950 |
+| surface / surface-raised | neutral-0 | neutral-0 | navy-900 / navy-800 |
+| fg (headings) | neutral-900 | neutral-900 | white |
+| fg-body / fg-muted | neutral-700 / neutral-600 | neutral-700 / neutral-600 | neutral-300 |
+| fg-subtle | neutral-500 | neutral-500 | neutral-400 |
+| border / border-strong | neutral-200 / neutral-300 | neutral-200 / neutral-300 | white 10 % / 22 % |
+| primary → hover, primary-fg | accent-600 → accent-700, white | same | accent-400 → accent-300, navy-950 |
+| link, highlight, focus | accent-600 | accent-600 | accent-300 |
+| tile / tile-fg | accent-100 / accent-700 | same | navy-800 / accent-300 |
+
+`npm run check:contrast` result (Stage 06): all 48 pairs pass. The lowest are fg-subtle on muted 4.68:1 (≥ 4.5) and primary-fg on primary (dark) 6.02:1.
+
+### 13.3 Typography (D-060)
+Plus Jakarta Sans Variable (display/headings, 600–800 used), Inter Variable (body/UI, 400–600) and JetBrains Mono Variable (eyebrows, numbers, 500). All are SIL OFL 1.1, self-hosted from `@fontsource-variable/*` 5.3.0, latin subset, upright only, `font-display: swap`. Jakarta and Inter are preloaded. Fallbacks are metric-matched to Arial/Liberation Sans:
+
+| Font | size-adjust | ascent | descent |
+|---|---|---|---|
+| Plus Jakarta Sans | 101.7 % | 102.1 % | 21.8 % |
+| Inter | 106.7 % | 90.8 % | 22.6 % |
+| JetBrains Mono (vs Courier New) | 100 % | 102 % | 30 % |
+
+Files: Jakarta 27.3 KB, Inter 48.3 KB (both preloaded, ≈ 76 KB together, within the ≈ 80 KB guidance), Mono 40.4 KB (on demand).
+
+### 13.4 The 15 section renderers
+Each receives the **public resolver's** data (references already resolved to published items; rich text sanitised server-side), the surface (`light`/`muted`/`dark`, which applies to every type), spacing (`default`/`compact`) and its heading level. The first hero gets the page `h1`; other sections use `h2`, and their cards `h3`.
+
+| Type | Rendering | Hidden when |
+|---|---|---|
+| `hero` | Editorial headline with accented `highlight`, lead, primary + secondary CTA; BitGrid panel (lg) or 8 × 3 strip (mobile); optional image visual with high fetch priority | no heading |
+| `richText` | `.prose-site` reading column (narrow/wide) | no body |
+| `serviceGrid` | Bento (§9.2) or numbered list; whole-card links | no services |
+| `projectShowcase` | Featured wide card + 2-column grid; category filter chips (`aria-pressed`) with a polite live summary; view transitions when allowed | no projects |
+| `testimonials` | Editorial quotes in a static grid (no carousel) | none consented |
+| `stats` | `<dl>` grid of large figures | no items |
+| `featureList` | 2–4 column icon cards; glow on hover on dark | no items |
+| `processSteps` | Numbered steps with connecting line (horizontal ≥ 1024, vertical below) | no steps |
+| `splitContent` | 4:3 framed image + rich text + CTA, image side configurable | no heading |
+| `ctaBanner` | Dark panel with BitGrid edge accent, full-bleed on mobile | no heading |
+| `faq` | Heading + disclosure buttons (`aria-expanded`) | no items |
+| `engagementModels` | 1–4 cards, "Recommended" highlight, price only if provided | no models |
+| `contactForm` | Contact details + lazy-loaded enquiry form (D-065) | never (shows a notice until configured) |
+| `jobList` | Job cards with type badge; CMS empty text when none open | never |
+| `clientLogos` | Monochrome logo grid, colour on hover | no logos |
+
+Unknown types render nothing in production and a visible warning in development. A failing section is caught by its own error boundary.
+
+### 13.5 Motion as built
+Reveals run on service and feature cards only; the hero is never hidden. The BitGrid "on" cells cascade once (520 ms, 45 ms stagger); the drawer fades in; hover lifts and arrow nudges apply only with a hover-capable pointer. Under `prefers-reduced-motion: reduce` the reveal state is never applied and all animations and transitions are effectively instant (verified by unit and browser tests).
+
+### 13.6 Development catalogue
+`npm run dev`, then open http://localhost:5173/__dev/catalogue (all tokens, primitives, states, navigation and sections; `?surface=light|muted|dark` forces one surface for every section) and http://localhost:5173/__dev/catalogue/home (the full homepage composition from fixtures). Production builds do not contain it (D-064).
+
+### 13.7 Deviations from the specification above
+- Bento: featured card is 2 × 1 with a BitGrid panel (see §9.2).
+- Social links are text labels (no brand logos available or reproduced).
+- The services mega-panel lists child links from the published navigation, enriched with service icon and summary; there is no separate featured row.
+- Mobile header shows the CTA from 640 px; below that it is inside the drawer.
+- FAQ answers do not yet emit FAQPage JSON-LD (server-side; Stage 07 with the inner pages).
+- The "Show map" button (§9.7) is not implemented; `showMap` is ignored until a map embed is approved.
+

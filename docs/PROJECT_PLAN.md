@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Complete rebuild of the BitByte Software Technology website (`bitbyteindia.com`) with a full content-management admin |
 | **Repository** | `bitbyte` (GitHub `robotronixindiatraining-gif/bitbyte`) |
-| **Last updated** | 2026-10-15 (Stage 05) |
+| **Last updated** | 2026-10-16 (Stage 06) |
 | **Status of stages** | `PROGRESS.md` · decisions in `DECISIONS.md` |
 
 ## 1. Goals
@@ -32,8 +32,8 @@
 | 02 | Architecture & design specification | ✅ Approved with refinements (D-018–D-039) |
 | 03 | Project foundation | ✅ Approved |
 | 04 | Database & admin security foundation | ✅ Approved |
-| 05 | CMS APIs, media, leads & SEO | 🟡 Implemented, awaiting approval (third-party production credentials pending) |
-| 06 | Design system implementation & public shell | ⏸ |
+| 05 | CMS APIs, media, leads & SEO | ✅ Approved (third-party production credentials pending) |
+| 06 | Design system, public shell & homepage | 🟡 Implemented, awaiting design review |
 | 07 | Public website | ⏸ |
 | 08 | Admin dashboard | ⏸ |
 | 09 | Content verification, entry & QA | ⏸ |
@@ -54,17 +54,17 @@
 - **Tests:** 401/403 for every admin route (generated from the route table); no full session from a password alone; enrolment-restricted sessions; TOTP replay rejected; recovery codes single-use; step-up required for sensitive actions; reset actions never clear both factors; lockout and expiry; session revocation; validation 422s; seed idempotency; schema unit tests.
 - **Acceptance:** all security tests pass; no admin route is reachable without a valid `super_admin` session; `API_REFERENCE.md` auth section matches the implementation. **Status:** met. 140 tests pass, plus a local end-to-end run against MongoDB 8.0 (`PROGRESS.md`). Scope refinements: the seed creates no portfolio projects (D-046); public content endpoints other than services, and the settings/orderings write APIs, move to Stage 05.
 
-**05: CMS APIs, media, leads & SEO** (implemented 2026-10-15; awaiting approval)
+**05: CMS APIs, media, leads & SEO** (approved)
 - **Scope:** every endpoint in `API_REFERENCE.md` §3 and §5: draft/publish/unpublish/discard/restore, preview, ordering, references and `IN_USE` checks, placeholder guard, consent/permission checks, **draft/published orderings (D-037)**, top-level slug resolution (D-038), redirects (automatic slug-change), media pipeline with the **Cloudinary** and local drivers (D-018), leads with **server-side Turnstile verification** (D-020), honeypot and the **Resend** mail adapter (D-019), lead retention purge (D-032), CSV export, erasure, careers application settings (D-031), dashboard summary, sitemap, robots and meta-injection service.
 - **Depends on:** 04. Development and tests use the local media driver, the log mailer and Cloudflare's Turnstile test keys; real Cloudinary/Resend credentials are only needed for staging/production.
 - **Tests:** integration per endpoint, including "public never returns drafts", 409 conflicts, upload rejections (wrong magic bytes, oversize, SVG), spam paths, CSV formula escaping; contract test keeping `API_REFERENCE.md` in sync.
 - **Acceptance:** coverage ≥ 80 % for services/controllers; contract test green. **Status:** met with mocked providers: 284 server tests (314 overall), contract test green, line coverage ≈ 89 % (services) and ≈ 85 % (controllers) (`PROGRESS.md`). Not verified against the real Cloudinary, Resend or Turnstile services (no credentials; pending, `DEPLOYMENT.md` §4b). Scope notes: the lead form fields remain provisional (D-053); no media "replace" endpoint (D-049); BreadcrumbList/FAQPage JSON-LD move to Stage 07 with the public pages.
 
-**06: Design system implementation & public shell**
+**06: Design system implementation, public shell & homepage** (implemented 2026-10-16; awaiting review)
 - **Scope:** Playwright + axe e2e workspace (D-040), fonts, primitives (`DESIGN_SYSTEM.md` §8), BitGrid, motion utilities (reveal, view transitions, reduced motion), header with mega-panel and mobile drawer, footer, all section renderers, `ResponsiveImage`, text-wordmark logo fallback, dev-only component catalogue route, contrast-check script.
 - **Depends on:** 03 (tokens), 05 (public API shape).
 - **Tests:** component tests; axe on the catalogue; keyboard tests for nav, dialog and accordion; reduced-motion snapshot.
-- **Acceptance:** every section type renders from API data in light, muted and dark variants; all token pairs pass the contrast script; routes are code-split so the public initial JS stays ≤ 120 KB gzip (the Stage 03 shell is already 110 KB).
+- **Acceptance:** every section type renders from API data in light, muted and dark variants; all token pairs pass the contrast script; routes are code-split so the public initial JS stays ≤ 120 KB gzip (the Stage 03 shell is already 110 KB). **Status:** met (`PROGRESS.md`): all 15 types on 3 surfaces (unit + browser tests, axe clean), 48/48 contrast pairs, initial JS 108.4 KiB gzip (111 045 B; Vite reports 112.36 kB). The homepage and the working enquiry form (lazy) were also delivered (D-063, D-065). The homepage shows a holding page until the owner publishes verified content (CG-12, CG-28).
 
 **07: Public website**
 - **Scope:** all public routes in `ROUTE_MAP.md` §2, with **legacy top-level service URLs preserved** (D-038); page compositions (`DESIGN_SYSTEM.md` §10); portfolio filtering; contact form end to end with Turnstile; 404; meta/JSON-LD/bootstrap injection; trailing-slash/case normalisation.
@@ -102,7 +102,8 @@ Stage 01 could not access the live site. Content verification continues alongsid
 ## 5. Decision gates
 | Decision | Needed before |
 |---|---|
-| Stage 05 approval | Stage 06 |
+| Stage 06 design review | Stage 07 |
+| Approval or replacement of the provisional hero copy (CG-28) and publication of homepage content | Public launch of the homepage |
 | Cloudinary, Resend and Turnstile credentials (company accounts) | Verifying the production integrations (`DEPLOYMENT.md` §4b); before launch at the latest |
 | Resend evaluation result (D-019): domain verification and deliverability | Production e-mail (Stage 10); the adapter allows a different provider |
 | Cloudinary plan re-check under a company account (D-018) | Production media (Stage 10) |

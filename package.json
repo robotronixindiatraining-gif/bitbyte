@@ -7,7 +7,8 @@
   "workspaces": [
     "shared",
     "server",
-    "client"
+    "client",
+    "e2e"
   ],
   "engines": {
     "node": ">=22.22.0",
@@ -23,14 +24,17 @@
     "format:check": "prettier --check .",
     "check:no-ts": "node scripts/check-no-typescript.js",
     "smoke": "node scripts/smoke.js",
-    "check": "npm run check:no-ts && npm run lint && npm run format:check && npm test && npm run build && npm run smoke",
+    "check": "npm run check:no-ts && npm run check:contrast && npm run lint && npm run format:check && npm test && npm run build && npm run check:bundle && npm run smoke && npm run test:e2e",
     "admin:create": "npm run admin:create -w server --",
     "admin:list": "npm run admin:list -w server --",
     "admin:reset-password": "npm run admin:reset-password -w server --",
     "admin:reset-2fa": "npm run admin:reset-2fa -w server --",
     "seed": "npm run seed -w server --",
     "retention:run": "npm run retention:run -w server --",
-    "secrets:generate": "npm run secrets:generate -w server --"
+    "secrets:generate": "npm run secrets:generate -w server --",
+    "check:contrast": "node scripts/contrast-check.js",
+    "check:bundle": "node scripts/bundle-size.js",
+    "test:e2e": "npm run e2e -w e2e"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

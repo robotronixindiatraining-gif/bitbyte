@@ -6,6 +6,7 @@
 | **Assets retrieved** | **0.** No file from bitbyteindia.com could be downloaded (`STAGE_LOG.md` §2). |
 | **Asset URLs discovered** | **0.** Search indexes returned no image, logo, favicon or font URLs for this domain. |
 | **Brand palette status** | **Not chosen.** It will be derived from the actual logo once that file is supplied. No logo has been invented or substituted. |
+| **Stage 06 status** | Still **no logo or brand asset** from the company. The site uses a plain **text wordmark** ("BitByte") in the logo slot (D-062). Open-licence fonts and icons were added (§6); no images were added (development fixtures generate placeholder graphics in code and are never deployed). |
 
 Each row below is an asset that is **expected** from the indexed page structure, not one that was observed. Original URL, filename, type and dimensions stay `[UNKNOWN]` until retrieved. "Suggested new filename" is a proposal for the new media library.
 
@@ -73,3 +74,14 @@ Full details are in `STAGE_LOG.md`.
 2. Record filename, type, dimensions and SHA-256 here, then set **Retrieved ✓**.
 3. Import into the CMS media library only after the owner confirms rights to use them.
 4. Derive the brand palette from the vector logo (A-01) and record the extracted hex values and contrast checks in `DESIGN_SYSTEM.md` (Stage 02).
+
+## 6. Third-party design assets added in Stage 06 (open licences)
+| Asset | Source / version | Licence | Where used | Notes |
+|---|---|---|---|---|
+| Plus Jakarta Sans Variable (latin, upright) | npm `@fontsource-variable/plus-jakarta-sans` 5.3.0 | SIL Open Font License 1.1 | Headings | Self-hosted, preloaded, 27.3 KB woff2 |
+| Inter Variable (latin, upright) | npm `@fontsource-variable/inter` 5.3.0 | SIL Open Font License 1.1 | Body and UI | Self-hosted, preloaded, 48.3 KB woff2 |
+| JetBrains Mono Variable (latin, upright) | npm `@fontsource-variable/jetbrains-mono` 5.3.0 | SIL Open Font License 1.1 | Eyebrows, numbers | Self-hosted, loaded on demand, 40.4 KB woff2 |
+| Lucide icons (curated set of 37 + UI icons) | npm `lucide-react` 1.48.0 | ISC | Service/feature icons, UI | Tree-shaken; brand/company logos are not part of the set and none are used |
+
+Not added: logos, favicons, photographs, client logos, screenshots or illustrations (A-01…A-31 remain open). The BitGrid motif is drawn in code (SVG) and is not a logo.
+

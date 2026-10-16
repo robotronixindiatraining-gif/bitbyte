@@ -63,6 +63,14 @@ New decisions are appended; superseded ones stay, marked with a pointer to their
 | D-056 | Redirect rules: content wins; automatic slug-change redirects never chain | Implemented in Stage 05; awaiting review | 2026-10-15 |
 | D-057 | Preview and HTML-shell semantics (drafts of non-archived items; real status codes) | Implemented in Stage 05; awaiting review | 2026-10-15 |
 | D-058 | Step-up for publishing `privacy` and `leadForm` settings | Implemented in Stage 05; awaiting review | 2026-10-15 |
+| D-059 | Declarative React Router (BrowserRouter/Routes) instead of the data router | Implemented in Stage 06; awaiting review | 2026-10-16 |
+| D-060 | Fonts self-hosted from @fontsource-variable (latin, upright only) with metric-matched local fallbacks | Implemented in Stage 06; awaiting review | 2026-10-16 |
+| D-061 | Semantic surface tokens; contrast verified by script in the pipeline | Implemented in Stage 06; awaiting review | 2026-10-16 |
+| D-062 | Header and footer built only from published settings; text wordmark; mobile menu is a native modal <dialog> | Implemented in Stage 06; awaiting review | 2026-10-16 |
+| D-063 | Homepage states: published sections, neutral holding page, error, loading; bootstrap data for the first render | Implemented in Stage 06; awaiting review | 2026-10-16 |
+| D-064 | Development-only component catalogue and fixtures (never bundled in production) | Implemented in Stage 06; awaiting review | 2026-10-16 |
+| D-065 | Contact form ships with its section renderer, lazy-loaded with the shared schema and Turnstile | Implemented in Stage 06; awaiting review | 2026-10-16 |
+| D-066 | Browser tests: Playwright 1.56.1 + axe against the production build with a mocked API | Implemented in Stage 06; awaiting review | 2026-10-16 |
 
 ---
 
@@ -323,6 +331,31 @@ Preview shows drafts of every non-archived item (draft order, D-037), but still 
 
 ### D-058 Step-up for personal-data settings (Stage 05)
 Publishing the `privacy` settings (retention periods) or the `leadForm` settings (notification recipients) requires a step-up within the last 5 minutes, like lead export and erasure. Editing their drafts does not.
+
+
+### D-059 Declarative routing (Stage 06; refines D-040)
+The client uses React Router's declarative API (`BrowserRouter` + `Routes`) instead of `createBrowserRouter`. Measured with esbuild, the declarative entry points are 14.5 KB gzip versus 32.0 KB for the data router. The data router's loaders/actions are not needed because data comes from TanStack Query. That saving is what keeps the initial bundle at about 108 KiB gzip (budget 120 KB) after adding the whole design system. Route errors are caught by a small error boundary; each CMS section also has its own boundary, so one broken section never blanks the page.
+
+### D-060 Fonts (Stage 06; implements D-023)
+Plus Jakarta Sans, Inter and JetBrains Mono come from the `@fontsource-variable/*` packages (SIL Open Font License 1.1). Only the **latin, upright** variable files are referenced, through our own `@font-face` rules (`client/src/styles/fonts.css`); Vite copies them with hashed names. A small Vite plugin preloads the heading and body fonts, and the mono accent font loads on demand. `font-display: swap` is used together with **metric-matched local fallbacks** (`size-adjust`/`ascent-override`/`descent-override`). The widths were measured in Chromium against Arial-metric fonts, and the vertical metrics were read from the font files themselves. This keeps the swap from shifting the layout. No remote font service is used.
+
+### D-061 Semantic surface tokens and contrast gate (Stage 06; implements DESIGN_SYSTEM §2.3)
+Components use semantic colours only (`bg`, `surface`, `fg`, `fg-body`, `fg-muted`, `fg-subtle`, `border`, `primary`, `link`, `highlight`, `tile`, `focus`, and the BitGrid cells). Three utilities (`surface-light`, `surface-muted`, `surface-dark`) remap them, so every component works on every section variant without per-variant code. `scripts/contrast-check.js` reads the real token file, resolves each surface, verifies 16 text/UI pairs per surface against WCAG 2.2 AA, and runs in `npm run check`.
+
+### D-062 Navigation from published data; wordmark; native dialog (Stage 06)
+Header links, the mega-panel, the CTA, footer columns, contact details and social links come **only** from published settings; nothing is hard-coded. When navigation is not published, the header shows just the wordmark. Mega-panel entries take icon and summary from the published services list. There is no logo, so the brand slot shows a plain **text wordmark** ("BitByte", with the published company name for screen readers); no mark is designed (D-024). Social profiles are text links, because the icon set has no brand logos and none are reproduced. The mobile menu is a native modal `<dialog>`, so the browser provides the focus trap, Escape handling and inert background; the code adds the scroll lock and focus return. The desktop menu is a disclosure, not an ARIA menu, so links keep link semantics.
+
+### D-063 Homepage states and the page-data path (Stage 06)
+The homepage renders the published `home` page section by section. On the first load the server-injected bootstrap JSON is used (no API round-trip for the page or site settings), but only when its `path` matches the current URL; client-side navigation fetches from the public API. A 404 from the API means "not published", and the page shows a neutral holding page ("Our new website is being prepared") with no business claims and no placeholders. API failures show a plain-language error with a retry, never technical details. Sections without content (e.g. an empty testimonials list) are hidden.
+
+### D-064 Development catalogue and fixtures (Stage 06)
+`/__dev/catalogue` shows tokens, primitives, states, navigation and all 15 section types on every surface. `/__dev/catalogue/home` shows the full homepage composition, built from `client/src/dev/fixtures.js`. Both exist only when `import.meta.env.DEV` is true. Vite removes the route and its dynamic import from production builds, and a browser test checks that the production JavaScript contains none of the fixture or catalogue strings. Fixtures are labelled, use obviously fictional names and generated placeholder images, and are never written to the database.
+
+### D-065 Contact form with its section (Stage 06; brings forward part of Stage 07)
+The `contactForm` section includes the working enquiry form, so that all 15 renderers are complete. The form uses the shared `leadSubmissionSchema` (provisional fields, D-053) for client validation, an error summary, field-level messages, a honeypot, the fill-time stamp and the Turnstile widget (loaded only when the form is shown). It is **lazy-loaded** (about 27 KB gzip including zod), so it costs nothing on pages without a form. It appears only when the lead-form settings and the Turnstile site key are published; otherwise the section shows contact details and "Online enquiries are not open yet". End-to-end verification with a real Turnstile key stays in Stage 07/10.
+
+### D-066 Browser-test strategy (Stage 06; implements D-040)
+A separate `e2e` workspace contains Playwright **1.56.1**, pinned exactly because its Chromium (build 1194) is the one preinstalled in the build environment; CI downloads the same build. It also contains `@axe-core/playwright` 4.13. The "site" project tests the **production build** (`vite preview`) with the public API mocked from the fixtures, so it needs no database or network. The "catalogue" project tests the dev server. Turnstile is replaced by a local stub. Axe checks WCAG 2.0/2.1/2.2 A and AA rules. A passing scan is **not** proof of conformance; the manual checks still to do are listed in `PROGRESS.md`.
 
 ---
 

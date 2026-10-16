@@ -252,3 +252,35 @@ A separate read-only review of the whole diff found no leak of unpublished conte
 
 ### 6. Not done (by scope or by missing input)
 Visual design system and public pages (Stages 06–07), admin UI (Stage 08), verification against real Cloudinary/Resend/Turnstile accounts (credentials pending), legacy-form field verification (fields provisional), production provisioning.
+
+## Stage 06: Design system, navigation, section renderers and homepage (2026-10-16)
+
+### 1. Preflight
+| Check | Result |
+|---|---|
+| Branch / status | `claude/amazing-sagan-mwrdn8`, clean, in sync with origin at `8bf0824`; Stage 05 commits `15a29cf` and `8bf0824` present; CI green on both |
+| Read | README, PROGRESS, STAGE_LOG, PROJECT_PLAN, ARCHITECTURE, DESIGN_SYSTEM, API_REFERENCE, DECISIONS, CONTENT_INVENTORY, ROUTE_MAP, CONTENT_GAPS, ASSET_INVENTORY |
+| Actual contracts checked in code | Section schemas (`shared/src/content/sections.js`), public resolver output (`server/src/services/resolver.js`), bootstrap injection (`server/src/seo/siteRoutes.js`), seeded homepage (dark hero + service grid) |
+| Brand assets | None in the repository (no logo, favicon or images); text wordmark used |
+| Baseline bundle | 110.44 kB gzip (Vite). Composition measured with esbuild: react-dom ≈ 205 KB, react-router ≈ 93 KB, TanStack Query ≈ 32 KB minified |
+
+### 2. Key choices (see DECISIONS D-059–D-066)
+Declarative router (−17.5 KB gzip), self-hosted latin-only variable fonts with measured fallback metrics, semantic surface tokens with a contrast gate, navigation strictly from published settings, native `<dialog>` drawer, a dev-only catalogue with labelled fixtures, the lazy enquiry form inside the `contactForm` renderer, and Playwright pinned to the preinstalled Chromium.
+
+### 3. Issues found and fixed during verification
+| Issue | Fix |
+|---|---|
+| Header CTA visible on narrow phones (`inline-flex` beat `hidden`) | Visibility moved to a wrapper element |
+| Featured service card (2 × 2) left a large empty area | Bento changed to a 2 × 1 featured card with a BitGrid panel |
+| Conflicting padding / column utilities (project cards, stats, engagement models) | `flush` card option and single-choice column maps |
+| Duplicate React keys for repeated CMS labels | Keys include the index |
+| Mega-menu: second ArrowDown did not move focus | Focus moves synchronously when the panel is already open |
+| Mobile drawer listeners never attached when navigation loaded after the first render (scroll lock would stick) | Effect re-runs when the menu appears; closing is idempotent |
+| axe: contact details `<dl>` had invalid children | Rendered as a list |
+| Lint: `setState` in effects, impure `Date.now()` during render, dialog click handler | Render-time state adjustment, effect-based timestamp, listener attached in an effect |
+
+### 4. Verification
+`npm run check` green: no-TS, contrast 48/48, lint, format, 395 unit/integration tests, build, bundle 108.4 KiB, smoke 14/14, 20 browser tests. Manual run of the production server against a throwaway MongoDB with published sample content: bootstrap path, title template and draft isolation confirmed; database deleted. Details in `PROGRESS.md`.
+
+### 5. Not done (by scope)
+Inner public pages and their fixed templates (Stage 07), admin UI (Stage 08), Lighthouse runs (Stage 07), manual screen-reader/zoom/forced-colours checks (Stage 09), real Turnstile verification (credentials), any business content.

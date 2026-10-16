@@ -72,6 +72,7 @@ The index holds URLs on **both hosts and both protocols**: `https://www.bitbytei
 | `/admin`, `/admin/*` | Admin dashboard (`ADMIN_GUIDE.md`) | UX guard client-side; **all data via `/api/v1/admin/*`, which enforces `super_admin` server-side**; `noindex`; disallowed in `robots.txt` |
 | `/admin/preview/:entity/:id` | Draft preview | Same as above; `X-Robots-Tag: noindex` |
 | `/api/v1/*` | REST API (`API_REFERENCE.md`) | Disallowed in `robots.txt` |
+| `/__dev/catalogue`, `/__dev/catalogue/home` | Component catalogue and homepage preview from fixtures (Stage 06) | **Development server only**: not present in production builds (D-064); production answers 404 |
 
 ## 5. Inputs still needed (from Stage 01)
 1. A crawl of the live site (network access), **or**
